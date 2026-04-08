@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>응급실 근무 스케줄러</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f8f8f7;--bg3:#f1efea;
+  --border:#e5e5e3;--border2:#d0d0ce;
+  --text:#1a1a1a;--text2:#6b6b6b;--text3:#9b9b9b;
+  --green:#1D9E75;--green-bg:#E1F5EE;--green-tc:#085041;
+  --red:#E24B4A;--red-bg:#FCEBEB;--red-tc:#791F1F;
+  --blue:#378ADD;--blue-bg:#E6F1FB;--blue-tc:#0C447C;
+  --amber-bg:#FAEEDA;--amber-tc:#633806;
+  --radius:8px;--radius-lg:12px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg3);min-height:100vh}
+.container{max-width:1100px;margin:0 auto;padding:1rem}
+.topbar{background:var(--bg);border-bottom:0.5px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50}
+.topbar h1{font-size:16px;font-weight:600;color:var(--text)}
+.topbar .subtitle{font-size:12px;color:var(--text2)}
+.mode-switch{margin-left:auto;display:flex;gap:4px}
+.mode-btn{padding:6px 14px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text2);cursor:pointer;font-size:12px;font-weight:500}
+.mode-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
+
+/* Cards */
+.card{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.25rem;margin-bottom:1rem}
+.card-title{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text)}
+.section-label{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+
+/* Buttons */
+.btn{padding:8px 18px;border:0.5px solid var(--border2);border-radius:var(--radius);cursor:pointer;background:var(--bg);color:var(--text);font-size:13px;font-weight:500;transition:background .15s}
+.btn:hover{background:var(--bg2)}
+.btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.primary:hover{background:#0F6E56}
+.btn.danger{color:var(--red);border-color:var(--red)}
+.btn.sm{padding:5px 12px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* Inputs */
+input,select,textarea{padding:7px 10px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--border2)}
+
+/* Alerts */
+.alert{padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:12px}
+.alert.success{background:var(--green-bg);color:var(--green-tc)}
+.alert.error{background:var(--red-bg);color:var(--red-tc)}
+.alert.warn{background:var(--amber-bg);color:var(--amber-tc)}
+.alert.info{background:var(--blue-bg);color:var(--blue-tc)}
+
+/* Progress */
+.progress{height:4px;background:var(--bg3);border-radius:2px;margin:8px 0}
+.progress-bar{height:100%;background:var(--green);border-radius:2px;transition:width .3s}
+
+/* Staff selector (직원용) */
+.staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.staff-card{padding:14px;border:1.5px solid var(--border);border-radius:var(--radius-lg);cursor:pointer;text-align:center;transition:all .15s;background:var(--bg)}
+.staff-card:hover{border-color:var(--border2);background:var(--bg2)}
+.staff-card.selected{border-color:var(--green);background:var(--green-bg)}
+.staff-card .sname{font-size:13px;font-weight:600;margin-bottom:4px}
+.staff-card .stype{font-size:11px;color:var(--text2)}
+.color-dot{width:28px;height:28px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff}
+
+/* Pref Calendar */
+.cal-month{margin-bottom:1.5rem}
+.cal-month-title{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)}
+.cal-week-header{display:grid;grid-template-columns:28px repeat(7,1fr);gap:2px;margin-bottom:4px}
+.cal-week-row{display:grid;grid-template-columns:28px repeat(7,1fr);gap:2px;margin-bottom:2px}
+.cal-dow{font-size:11px;color:var(--text2);text-align:center;padding:3px}
+.cal-wnum{font-size:10px;color:var(--text3);display:flex;align-items:center;justify-content:center}
+.cal-cell{border:0.5px solid var(--border);border-radius:6px;padding:4px;min-height:58px;cursor:pointer;background:var(--bg);transition:border-color .1s}
+.cal-cell:hover{border-color:var(--border2)}
+.cal-cell.empty{visibility:hidden;pointer-events:none}
+.cal-cell.out{opacity:.3;pointer-events:none}
+.cal-cell.holiday{background:#FFF8F8}
+.cal-cell.weekend{background:#FAFAF8}
+.day-num{font-size:11px;font-weight:600;margin-bottom:2px}
+.day-hol{font-size:8px;color:#c0392b;line-height:1.1;max-height:14px;overflow:hidden}
+.day-tags{display:flex;flex-direction:column;gap:1px;margin-top:2px}
+.day-tag{font-size:9px;padding:1px 4px;border-radius:3px;text-align:center;font-weight:500}
+.tag-wish{background:#C0DD97;color:#27500A}
+.tag-block{background:#F4C0D1;color:#72243E}
+
+/* Pref Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200}
+.modal{background:var(--bg);border-radius:var(--radius-lg);padding:1.5rem;width:340px;max-width:95vw;border:0.5px solid var(--border);max-height:90vh;overflow-y:auto}
+.modal h3{font-size:15px;font-weight:600;margin-bottom:12px}
+.shift-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.shift-btn{padding:9px;border:0.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;text-align:center;background:var(--bg2);transition:all .1s}
+.shift-btn:hover{opacity:.8}
+.shift-btn.aw{border:2px solid var(--green)}
+.shift-btn.ab{border:2px solid var(--red)}
+.divider{height:0.5px;background:var(--border);margin:10px 0}
+
+/* Admin tabs */
+.tabs{display:flex;gap:4px;border-bottom:0.5px solid var(--border);margin-bottom:1.5rem;flex-wrap:wrap}
+.tab{padding:8px 16px;cursor:pointer;border:none;background:none;color:var(--text2);font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.active{color:var(--text);border-bottom-color:var(--text);font-weight:600}
+
+/* Schedule table */
+.tbl-wrap{overflow-x:auto;max-height:500px;overflow-y:auto}
+.stbl{width:100%;border-collapse:collapse;font-size:11px}
+.stbl th,.stbl td{border:0.5px solid var(--border);padding:3px 5px;text-align:center;white-space:nowrap}
+.stbl th{background:var(--bg2);font-weight:600;font-size:10px;position:sticky;top:0;z-index:1}
+.stbl .nc{text-align:left;min-width:72px;position:sticky;left:0;background:var(--bg);z-index:1;font-weight:600}
+.stbl th.nc{z-index:2;background:var(--bg2)}
+.sc{padding:2px 4px;border-radius:3px;font-size:10px;font-weight:600;display:inline-block;min-width:22px}
+
+/* View calendar */
+.vcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.vcal-header{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px}
+.vcal-header span{text-align:center;font-size:11px;color:var(--text2);padding:3px}
+.vcal-day{border:0.5px solid var(--border);border-radius:6px;padding:4px;min-height:68px;background:var(--bg)}
+.vcal-day.hol{background:#FFF8F8}
+.vshift-row{font-size:9px;padding:1px 4px;border-radius:3px;display:flex;align-items:center;gap:2px;margin-bottom:1px}
+.vshift-lbl{font-size:8px;font-weight:700;min-width:14px}
+
+/* Stat */
+.stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.stat-box{background:var(--bg2);border-radius:var(--radius);padding:10px 14px;min-width:80px;text-align:center}
+.stat-n{font-size:22px;font-weight:600}
+.stat-l{font-size:11px;color:var(--text2);margin-top:2px}
+
+.flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ml-auto{margin-left:auto}
+.row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="topbar h1" style="font-size:16px;font-weight:600">응급실 근무 스케줄러</div>
+    <div class="subtitle" id="topbar-sub">모드를 선택해 주세요</div>
+  </div>
+  <div class="mode-switch">
+    <button class="mode-btn" id="btn-staff-mode" onclick="setMode('staff')">직원</button>
+    <button class="mode-btn" id="btn-admin-mode" onclick="promptAdmin()">관리자</button>
+  </div>
+</div>
+
+<!-- ===== 직원 화면 ===== -->
+<div id="view-staff" style="display:none">
+  <div class="container">
+
+    <!-- Step 1: 직원 선택 -->
+    <div id="staff-step1">
+      <div class="card" style="margin-top:1rem">
+        <div class="card-title">본인 이름을 선택해 주세요</div>
+        <div class="staff-grid" id="staff-pick-grid"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: 희망/불가 입력 -->
+    <div id="staff-step2" style="display:none">
+      <div class="card" style="margin-top:1rem">
+        <div class="flex">
+          <button class="btn sm" onclick="backToStaffPick()">← 다시 선택</button>
+          <span style="font-size:15px;font-weight:600;margin-left:4px" id="selected-staff-name"></span>
+          <span class="ml-auto" style="font-size:12px;color:var(--text2)" id="pref-period-label"></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="flex" style="margin-bottom:10px">
+          <span class="tag-wish" style="padding:2px 10px;border-radius:4px;font-size:11px">희망</span>
+          <span class="tag-block" style="padding:2px 10px;border-radius:4px;font-size:11px;margin-left:4px">불가</span>
+          <span style="font-size:12px;color:var(--text2);margin-left:8px">날짜를 클릭해서 희망/불가 설정</span>
+        </div>
+        <div id="pref-cal-wrap"></div>
+      </div>
+      <div class="card">
+        <div id="submit-alert"></div>
+        <div class="flex">
+          <div style="font-size:12px;color:var(--text2)" id="pref-count-label"></div>
+          <button class="btn primary ml-auto" onclick="submitPrefs()" id="submit-btn">제출하기</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== 관리자 화면 ===== -->
+<div id="view-admin" style="display:none">
+  <div class="container" style="padding-top:1rem">
+    <div class="tabs">
+      <button class="tab active" onclick="adminTab('setup')">기본 설정</button>
+      <button class="tab" onclick="adminTab('staff')">직원 관리</button>
+      <button class="tab" onclick="adminTab('prefs')">일정 현황</button>
+      <button class="tab" onclick="adminTab('schedule')">스케줄 생성</button>
+      <button class="tab" onclick="adminTab('view')">스케줄 보기</button>
+      <button class="tab" onclick="adminTab('stats')">통계</button>
+    </div>
+
+    <!-- 기본 설정 -->
+    <div id="atab-setup">
+      <div class="card">
+        <div class="card-title">근무 기간</div>
+        <div class="row">
+          <label style="font-size:13px;color:var(--text2);min-width:60px">시작일</label>
+          <input type="date" id="a-start-date" style="max-width:180px">
+          <span style="font-size:12px;color:var(--text2)">→ 8주(56일) 자동 적용</span>
+        </div>
+        <div id="a-period-info" style="font-size:12px;color:var(--text2);margin-top:4px;margin-left:70px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">공휴일</div>
+        <div id="a-holiday-status" style="font-size:13px;color:var(--text2);margin-bottom:8px"></div>
+        <div class="flex">
+          <button class="btn primary" onclick="loadHolidays()">대한민국 공휴일 불러오기</button>
+          <button class="btn" onclick="showAddHoliday()">직접 추가</button>
+          <button class="btn primary ml-auto" onclick="saveConfigToSheet()">설정 저장</button>
+        </div>
+        <div id="holiday-chips" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Apps Script 연결</div>
+        <div class="row">
+          <label style="font-size:13px;color:var(--text2);min-width:60px">API URL</label>
+          <input type="text" id="api-url" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+        <div class="flex" style="margin-top:8px">
+          <button class="btn" onclick="testApi()">연결 테스트</button>
+          <div id="api-test-result" style="font-size:12px;margin-left:8px"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px">이 URL은 브라우저에만 저장됩니다. Apps Script 배포 후 "웹 앱 URL"을 붙여넣으세요.</div>
+      </div>
+    </div>
+
+    <!-- 직원 관리 -->
+    <div id="atab-staff" style="display:none">
+      <div class="card">
+        <div class="flex" style="margin-bottom:12px">
+          <div class="card-title" style="margin:0">직원 목록</div>
+          <button class="btn sm primary ml-auto" onclick="showAddStaff()">+ 직원 추가</button>
+          <button class="btn sm" onclick="syncStaffToSheet()">Sheets 저장</button>
+        </div>
+        <div id="a-staff-list"></div>
+      </div>
+    </div>
+
+    <!-- 일정 현황 -->
+    <div id="atab-prefs" style="display:none">
+      <div class="card">
+        <div class="flex" style="margin-bottom:12px">
+          <div class="card-title" style="margin:0">직원별 희망/불가 현황</div>
+          <button class="btn sm ml-auto" onclick="loadAllPrefsFromSheet()">Sheets에서 불러오기</button>
+        </div>
+        <div id="prefs-summary"></div>
+      </div>
+    </div>
+
+    <!-- 스케줄 생성 -->
+    <div id="atab-schedule" style="display:none">
+      <div class="card">
+        <div class="card-title">스케줄 자동 생성</div>
+        <div id="gen-alert"></div>
+        <div class="progress" id="gen-pw" style="display:none"><div class="progress-bar" id="gen-pb" style="width:0%"></div></div>
+        <div id="gen-log" style="font-size:12px;color:var(--text2);min-height:18px;margin-bottom:10px"></div>
+        <div class="flex">
+          <button class="btn primary" onclick="generateSchedule()">스케줄 생성</button>
+          <button class="btn" onclick="clearSchedule()">초기화</button>
+          <button class="btn ml-auto" onclick="exportCSV()">CSV 다운로드</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 스케줄 보기 -->
+    <div id="atab-view" style="display:none">
+      <div class="card">
+        <div class="flex" style="margin-bottom:8px">
+          <div class="card-title" style="margin:0">캘린더</div>
+          <div class="flex ml-auto">
+            <button class="btn sm" onclick="prevMonth()">◀</button>
+            <span id="vcal-label" style="font-size:13px;font-weight:600;min-width:90px;text-align:center"></span>
+            <button class="btn sm" onclick="nextMonth()">▶</button>
+          </div>
+        </div>
+        <div id="staff-legend" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+        <div class="vcal-header">
+          <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+          <span style="color:#185FA5">토</span><span style="color:#E24B4A">일</span>
+        </div>
+        <div class="vcal-grid" id="vcal"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">전체 근무표</div>
+        <div class="tbl-wrap" id="schedule-tbl-wrap"></div>
+      </div>
+    </div>
+
+    <!-- 통계 -->
+    <div id="atab-stats" style="display:none">
+      <div id="stats-wrap"><div style="color:var(--text2);font-size:13px">스케줄을 먼저 생성해 주세요.</div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Overlay / Modal -->
+<div id="overlay" class="overlay" style="display:none" onclick="closeOverlay(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ================================================
+// 상수
+// ================================================
+const SHIFTS=['D','E1','E2','N'];
+const DOW_MON=['월','화','수','목','금','토','일'];
+const SHIFT_END={D:16,E1:24,E2:25,N:32};
+const SHIFT_REST={D:15,E1:15,E2:23,N:23};
+const SHIFT_START={D:8,E1:16,E2:18,N:25};
+const PROF_E1_TOTAL=24;
+const PROF_E1_DAYS=[1,3,5]; // 화=1 목=3 토=5
+
+const COLORS=[
+  {bg:'#EEEDFE',tc:'#3C3489',dot:'#7F77DD'},
+  {bg:'#E1F5EE',tc:'#085041',dot:'#1D9E75'},
+  {bg:'#FAECE7',tc:'#712B13',dot:'#D85A30'},
+  {bg:'#FBEAF0',tc:'#72243E',dot:'#D4537E'},
+  {bg:'#E6F1FB',tc:'#0C447C',dot:'#378ADD'},
+  {bg:'#EAF3DE',tc:'#27500A',dot:'#639922'},
+  {bg:'#FAEEDA',tc:'#633806',dot:'#BA7517'},
+  {bg:'#F1EFE8',tc:'#444441',dot:'#888780'},
+  {bg:'#FCEBEB',tc:'#791F1F',dot:'#E24B4A'},
+  {bg:'#E1F5EE',tc:'#3C3489',dot:'#534AB7'},
+  {bg:'#FAEEDA',tc:'#0C447C',dot:'#185FA5'},
+];
+const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
+
+// ================================================
+// 앱 상태
+// ================================================
+let app = {
+  mode: null,
+  apiUrl: localStorage.getItem('apiUrl') || '',
+  startDate: '2025-07-01',
+  holidays: {},
+  staff: [
+    {id:1,name:'진료교수',type:'prof'},
+    {id:2,name:'전문의1',type:'spec'},
+    {id:3,name:'전문의2',type:'spec'},
+    {id:4,name:'전문의3',type:'spec'},
+    {id:5,name:'전문의4',type:'spec'},
+    {id:6,name:'전문의5',type:'spec'},
+    {id:7,name:'전문의6',type:'spec'},
+    {id:8,name:'전문의7',type:'spec'},
+    {id:9,name:'전문의8',type:'spec'},
+    {id:10,name:'전문의9',type:'spec'},
+  ],
+  // 로컬 prefs: { staffName: { "2025-07-01": ["wish_D","block_N"], ... } }
+  prefs: {},
+  schedule: {},
+  calViewDate: null,
+  selectedStaff: null,
+};
+
+// ================================================
+// 유틸
+// ================================================
+function dowMon(d){return (new Date(d+'T00:00:00').getDay()+6)%7;}
+function dowJS(d){return new Date(d+'T00:00:00').getDay();}
+function isWeekend(d){const dw=dowJS(d);return dw===0||dw===6;}
+function isHoliday(d){return !!app.holidays[d];}
+function isSpecial(d){return isWeekend(d)||isHoliday(d);}
+function getSD(){return new Date(app.startDate+'T00:00:00');}
+function getED(){const d=getSD();d.setDate(d.getDate()+55);return d;}
+function ds(d){return d.toISOString().slice(0,10);}
+function getAllDates(){
+  const arr=[];const d=getSD();
+  for(let i=0;i<56;i++){arr.push(ds(d));d.setDate(d.getDate()+1);}
+  return arr;
+}
+function staffColor(staffId){
+  const idx=app.staff.findIndex(s=>s.id===staffId);
+  return COLORS[idx%COLORS.length]||COLORS[0];
+}
+function staffColorByIdx(idx){return COLORS[idx%COLORS.length]||COLORS[0];}
+function getPrefArr(staffName,date){
+  const p=(app.prefs[staffName]||{})[date];
+  if(!p)return[];return Array.isArray(p)?p:[p];
+}
+function isBlocked(sn,d,sh){const p=getPrefArr(sn,d);return p.includes('block_all')||p.includes('block_'+sh);}
+function isWished(sn,d,sh){const p=getPrefArr(sn,d);return p.includes('wish_all')||p.includes('wish_'+sh);}
+function isBlockedById(id,d,sh){
+  const s=app.staff.find(x=>x.id===id);
+  if(!s)return false;
+  return isBlocked(s.name,d,sh);
+}
+function isWishedById(id,d,sh){
+  const s=app.staff.find(x=>x.id===id);
+  if(!s)return false;
+  return isWished(s.name,d,sh);
+}
+
+// ================================================
+// API
+// ================================================
+async function apiGet(params){
+  const url=app.apiUrl;
+  if(!url)throw new Error('API URL이 설정되지 않았습니다.');
+  const qs=new URLSearchParams(params).toString();
+  const res=await fetch(`${url}?${qs}`);
+  return await res.json();
+}
+async function apiPost(body){
+  const url=app.apiUrl;
+  if(!url)throw new Error('API URL이 설정되지 않았습니다.');
+  const res=await fetch(url,{method:'POST',body:JSON.stringify(body)});
+  return await res.json();
+}
+
+// ================================================
+// 모드 전환
+// ================================================
+function setMode(mode){
+  app.mode=mode;
+  document.getElementById('view-staff').style.display=mode==='staff'?'block':'none';
+  document.getElementById('view-admin').style.display=mode==='admin'?'block':'none';
+  document.getElementById('btn-staff-mode').classList.toggle('active',mode==='staff');
+  document.getElementById('btn-admin-mode').classList.toggle('active',mode==='admin');
+  document.getElementById('topbar-sub').textContent=mode==='staff'?'직원 희망/불가 입력':'관리자';
+  if(mode==='staff')initStaffMode();
+  if(mode==='admin'){
+    document.getElementById('api-url').value=app.apiUrl;
+    updatePeriodInfo();
+    renderAdminStaff();
+  }
+}
+
+function promptAdmin(){
+  document.getElementById('modal-body').innerHTML=`
+    <h3>관리자 로그인</h3>
+    <div style="margin:12px 0">
+      <input type="password" id="admin-pw" placeholder="비밀번호" autofocus>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">기본 비밀번호: admin1234 (Apps Script에서 변경 가능)</div>
+    <div class="flex">
+      <button class="btn primary" onclick="checkAdminPw()">확인</button>
+      <button class="btn" onclick="closeOverlay()">취소</button>
+    </div>`;
+  document.getElementById('overlay').style.display='flex';
+  setTimeout(()=>document.getElementById('admin-pw').focus(),50);
+}
+function checkAdminPw(){
+  const pw=document.getElementById('admin-pw').value;
+  // 로컬 체크 (실제 운영 시 Apps Script에서 검증)
+  const stored=localStorage.getItem('adminPw')||'admin1234';
+  if(pw===stored){closeOverlay();setMode('admin');}
+  else alert('비밀번호가 틀렸습니다.');
+}
+
+// ================================================
+// 직원 모드
+// ================================================
+function initStaffMode(){
+  if(app.apiUrl){
+    loadStaffFromSheet().then(()=>renderStaffPick());
+  } else {
+    renderStaffPick();
+  }
+}
+
+function renderStaffPick(){
+  const grid=document.getElementById('staff-pick-grid');
+  grid.innerHTML='';
+  app.staff.forEach((s,i)=>{
+    const c=staffColorByIdx(i);
+    const div=document.createElement('div');
+    div.className='staff-card';
+    div.innerHTML=`
+      <div class="color-dot" style="background:${c.dot}">${DOT_LETTERS[i%DOT_LETTERS.length]}</div>
+      <div class="sname">${s.name}</div>
+      <div class="stype">${s.type==='prof'?'진료교수':'전문의'}</div>`;
+    div.onclick=()=>selectStaff(s);
+    grid.appendChild(div);
+  });
+}
+
+async function selectStaff(s){
+  app.selectedStaff=s;
+  document.getElementById('selected-staff-name').textContent=s.name;
+  document.getElementById('staff-step1').style.display='none';
+  document.getElementById('staff-step2').style.display='block';
+
+  const dates=getAllDates();
+  document.getElementById('pref-period-label').textContent=
+    dates.length?`${dates[0]} ~ ${dates[dates.length-1]}`:'';
+
+  // Sheets에서 기존 입력 불러오기
+  if(app.apiUrl){
+    try{
+      const res=await apiGet({action:'getPrefs',staffName:s.name});
+      if(res.prefs){
+        const converted={};
+        Object.entries(res.prefs).forEach(([key,val])=>{
+          // key = "staffName_date"
+          const date=key.split('_').slice(1).join('_');
+          converted[date]=val;
+        });
+        app.prefs[s.name]=converted;
+      }
+    }catch(e){console.log('불러오기 실패(오프라인 모드)',e);}
+  }
+  renderPrefCal();
+  updatePrefCount();
+}
+
+function backToStaffPick(){
+  app.selectedStaff=null;
+  document.getElementById('staff-step1').style.display='block';
+  document.getElementById('staff-step2').style.display='none';
+}
+
+function renderPrefCal(){
+  const sn=app.selectedStaff?.name;
+  if(!sn)return;
+  const allDates=getAllDates();
+  const byMonth={};
+  allDates.forEach(d=>{const ym=d.slice(0,7);if(!byMonth[ym])byMonth[ym]=[];byMonth[ym].push(d);});
+  let html='';
+  Object.entries(byMonth).forEach(([ym,mDates])=>{
+    const [y,m]=ym.split('-');
+    const fdow=dowMon(mDates[0]);
+    html+=`<div class="cal-month"><div class="cal-month-title">${y}년 ${parseInt(m)}월</div>`;
+    html+=`<div class="cal-week-header"><div></div>`;
+    DOW_MON.forEach((d,i)=>{
+      const tc=i===5?'color:#185FA5':i===6?'color:#E24B4A':'';
+      html+=`<div class="cal-dow" style="${tc}">${d}</div>`;
+    });
+    html+='</div>';
+    const weeks=[];let cur=[];
+    for(let i=0;i<fdow;i++)cur.push(null);
+    mDates.forEach(d=>{cur.push(d);if(cur.length===7){weeks.push(cur);cur=[];}});
+    if(cur.length>0){while(cur.length<7)cur.push(null);weeks.push(cur);}
+    weeks.forEach((week,wi)=>{
+      html+=`<div class="cal-week-row"><div class="cal-wnum">W${wi+1}</div>`;
+      week.forEach(d=>{
+        if(!d){html+=`<div class="cal-cell empty"></div>`;return;}
+        const inR=allDates.includes(d);
+        const pArr=getPrefArr(sn,d);
+        const isHol=isHoliday(d),dow=dowMon(d),dayNum=parseInt(d.slice(8));
+        const dayColor=dow===6?'#E24B4A':dow===5?'#185FA5':'var(--text)';
+        const bg=isHol?'holiday':isWeekend(d)?'weekend':'';
+        const outCls=inR?'':'out ';
+        let tagHtml='';
+        pArr.forEach(p=>{
+          const cls=p.startsWith('wish')?'tag-wish':'tag-block';
+          const lbl=p==='wish_all'?'전체희망':p==='block_all'?'전체불가':
+            p.replace('wish_','').replace('block_','')+(p.startsWith('wish')?'희망':'불가');
+          tagHtml+=`<div class="day-tag ${cls}">${lbl}</div>`;
+        });
+        html+=`<div class="cal-cell ${outCls}${bg}" onclick="showPrefModal('${d}')">
+          <div class="day-num" style="color:${dayColor}">${dayNum}</div>
+          ${isHol?`<div class="day-hol">${app.holidays[d]}</div>`:''}
+          <div class="day-tags">${tagHtml}</div>
+        </div>`;
+      });
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+  document.getElementById('pref-cal-wrap').innerHTML=html;
+}
+
+function showPrefModal(date){
+  const sn=app.selectedStaff?.name;
+  if(!sn)return;
+  const pArr=getPrefArr(sn,date);
+  const isAct=k=>pArr.includes(k);
+  const SBG={D:'#B5D4F4',E1:'#C0DD97',E2:'#FAC775',N:'#F4C0D1'};
+  const STC={D:'#0C447C',E1:'#27500A',E2:'#633806',N:'#72243E'};
+  const dow=DOW_MON[dowMon(date)];
+  document.getElementById('modal-body').innerHTML=`
+    <h3>${date} (${dow})</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">복수 선택 가능합니다</div>
+    <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--text2)">희망 근무</div>
+    <div class="shift-grid">
+      ${SHIFTS.map(sh=>`
+        <button class="shift-btn ${isAct('wish_'+sh)?'aw':''}"
+          style="background:${SBG[sh]};color:${STC[sh]}"
+          onclick="togglePrefItem('${sn}','${date}','wish_${sh}')">
+          ${sh} 희망 ${isAct('wish_'+sh)?'✓':''}
+        </button>`).join('')}
+      <button class="shift-btn ${isAct('wish_all')?'aw':''}" style="grid-column:1/-1"
+        onclick="togglePrefItem('${sn}','${date}','wish_all')">
+        전체 희망 ${isAct('wish_all')?'✓':''}
+      </button>
+    </div>
+    <div class="divider"></div>
+    <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--text2)">불가 근무</div>
+    <div class="shift-grid">
+      ${SHIFTS.map(sh=>`
+        <button class="shift-btn ${isAct('block_'+sh)?'ab':''}"
+          onclick="togglePrefItem('${sn}','${date}','block_${sh}')">
+          ${sh} 불가 ${isAct('block_'+sh)?'✓':''}
+        </button>`).join('')}
+      <button class="shift-btn ${isAct('block_all')?'ab':''}" style="grid-column:1/-1"
+        onclick="togglePrefItem('${sn}','${date}','block_all')">
+        전체 불가 ${isAct('block_all')?'✓':''}
+      </button>
+    </div>
+    <div class="flex" style="margin-top:14px">
+      <button class="btn danger sm" onclick="clearPrefDate('${sn}','${date}')">전체 취소</button>
+      <button class="btn ml-auto" onclick="closeOverlay()">닫기</button>
+    </div>`;
+  document.getElementById('overlay').style.display='flex';
+}
+
+function togglePrefItem(sn,date,key){
+  if(!app.prefs[sn])app.prefs[sn]={};
+  let arr=getPrefArr(sn,date);
+  const idx=arr.indexOf(key);
+  if(idx>=0)arr.splice(idx,1);else arr.push(key);
+  if(arr.length===0)delete app.prefs[sn][date];
+  else app.prefs[sn][date]=arr;
+  showPrefModal(date);
+  renderPrefCal();
+  updatePrefCount();
+}
+
+function clearPrefDate(sn,date){
+  if(app.prefs[sn])delete app.prefs[sn][date];
+  closeOverlay();renderPrefCal();updatePrefCount();
+}
+
+function updatePrefCount(){
+  const sn=app.selectedStaff?.name;
+  const prefs=app.prefs[sn]||{};
+  const cnt=Object.keys(prefs).length;
+  document.getElementById('pref-count-label').textContent=`총 ${cnt}일 설정됨`;
+}
+
+async function submitPrefs(){
+  const sn=app.selectedStaff?.name;
+  if(!sn)return;
+  const btn=document.getElementById('submit-btn');
+  const alertEl=document.getElementById('submit-alert');
+  btn.disabled=true;btn.textContent='제출 중...';
+
+  try{
+    if(!app.apiUrl)throw new Error('API URL이 설정되지 않았습니다. 관리자에게 문의하세요.');
+    const res=await apiPost({
+      action:'savePrefs',
+      staffName:sn,
+      prefs:app.prefs[sn]||{}
+    });
+    if(res.error)throw new Error(res.error);
+    alertEl.innerHTML=`<div class="alert success">제출 완료! ${res.saved||0}건의 일정이 저장되었습니다.</div>`;
+  }catch(e){
+    alertEl.innerHTML=`<div class="alert error">오류: ${e.message}</div>`;
+  }
+  btn.disabled=false;btn.textContent='제출하기';
+}
+
+// ================================================
+// 관리자 탭
+// ================================================
+let currentAdminTab='setup';
+function adminTab(t){
+  ['setup','staff','prefs','schedule','view','stats'].forEach(x=>{
+    document.getElementById('atab-'+x).style.display=x===t?'block':'none';
+  });
+  document.querySelectorAll('#view-admin .tab').forEach((b,i)=>{
+    const tabs=['setup','staff','prefs','schedule','view','stats'];
+    b.classList.toggle('active',tabs[i]===t);
+  });
+  currentAdminTab=t;
+  if(t==='prefs')renderPrefsSummary();
+  if(t==='view')renderCalView();
+  if(t==='stats')renderStats();
+}
+
+// 기본 설정
+function updatePeriodInfo(){
+  const s=getSD(),e=getED();
+  document.getElementById('a-period-info').textContent=`기간: ${ds(s)} ~ ${ds(e)} (56일)`;
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('a-start-date').addEventListener('change',function(){
+    app.startDate=this.value;updatePeriodInfo();
+  });
+  document.getElementById('api-url').addEventListener('change',function(){
+    app.apiUrl=this.value.trim();
+    localStorage.setItem('apiUrl',app.apiUrl);
+  });
+  // 초기 시작 화면
+  document.getElementById('view-staff').style.display='none';
+  document.getElementById('view-admin').style.display='none';
+});
+
+async function testApi(){
+  const el=document.getElementById('api-test-result');
+  app.apiUrl=document.getElementById('api-url').value.trim();
+  localStorage.setItem('apiUrl',app.apiUrl);
+  el.textContent='테스트 중...';el.style.color='var(--text2)';
+  try{
+    const res=await apiGet({action:'getConfig'});
+    if(res.error)throw new Error(res.error);
+    if(res.startDate)app.startDate=res.startDate;
+    el.textContent='✓ 연결 성공!';el.style.color='#1D9E75';
+    if(res.startDate){
+      document.getElementById('a-start-date').value=res.startDate;
+      updatePeriodInfo();
+    }
+  }catch(e){
+    el.textContent='✗ 실패: '+e.message;el.style.color='#E24B4A';
+  }
+}
+
+async function saveConfigToSheet(){
+  try{
+    app.startDate=document.getElementById('a-start-date').value||app.startDate;
+    await apiPost({action:'saveConfig',config:{startDate:app.startDate}});
+    alert('설정이 저장되었습니다.');
+  }catch(e){alert('저장 실패: '+e.message);}
+}
+
+async function loadHolidays(){
+  const KR={
+    '2025-01-01':'신정','2025-01-28':'설날 연휴','2025-01-29':'설날','2025-01-30':'설날 연휴',
+    '2025-03-01':'삼일절','2025-05-05':'어린이날','2025-05-06':'어린이날 대체',
+    '2025-05-09':'부처님오신날','2025-06-06':'현충일','2025-08-15':'광복절',
+    '2025-10-03':'개천절','2025-10-05':'추석 연휴','2025-10-06':'추석','2025-10-07':'추석 연휴',
+    '2025-10-08':'대체공휴일','2025-10-09':'한글날','2025-12-25':'크리스마스',
+    '2026-01-01':'신정','2026-02-17':'설날 연휴','2026-02-18':'설날','2026-02-19':'설날 연휴',
+    '2026-03-01':'삼일절','2026-05-05':'어린이날','2026-05-24':'부처님오신날',
+    '2026-06-06':'현충일','2026-08-15':'광복절','2026-09-24':'추석 연휴',
+    '2026-09-25':'추석','2026-09-26':'추석 연휴','2026-10-03':'개천절','2026-10-09':'한글날',
+    '2026-12-25':'크리스마스'
+  };
+  const s=ds(getSD()),e=ds(getED());let cnt=0;
+  Object.entries(KR).forEach(([d,name])=>{if(d>=s&&d<=e){app.holidays[d]=name;cnt++;}});
+  document.getElementById('a-holiday-status').textContent=`공휴일 ${cnt}개 반영됨`;
+  renderHolidayChips();
+}
+function renderHolidayChips(){
+  const el=document.getElementById('holiday-chips');el.innerHTML='';
+  Object.entries(app.holidays).sort().forEach(([d,name])=>{
+    const span=document.createElement('span');
+    span.style.cssText='background:#FCEBEB;color:#791F1F;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer';
+    span.textContent=`${d} ${name} ✕`;
+    span.onclick=()=>{delete app.holidays[d];renderHolidayChips();};
+    el.appendChild(span);
+  });
+}
+function showAddHoliday(){
+  document.getElementById('modal-body').innerHTML=`
+    <h3>공휴일 추가</h3>
+    <div style="margin:10px 0"><input type="date" id="hol-d"></div>
+    <div style="margin:10px 0"><input type="text" id="hol-n" placeholder="공휴일명"></div>
+    <div class="flex" style="margin-top:12px">
+      <button class="btn primary" onclick="addHoliday()">추가</button>
+      <button class="btn" onclick="closeOverlay()">취소</button>
+    </div>`;
+  document.getElementById('overlay').style.display='flex';
+}
+function addHoliday(){
+  const d=document.getElementById('hol-d').value,n=document.getElementById('hol-n').value||'공휴일';
+  if(!d)return;app.holidays[d]=n;renderHolidayChips();closeOverlay();
+}
+
+// 직원 관리
+function renderAdminStaff(){
+  const el=document.getElementById('a-staff-list');el.innerHTML='';
+  app.staff.forEach((s,i)=>{
+    const c=staffColorByIdx(i);
+    const div=document.createElement('div');
+    div.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg2);border-radius:var(--radius);margin-bottom:6px';
+    div.innerHTML=`
+      <span style="width:12px;height:12px;border-radius:50%;background:${c.dot};display:inline-block;flex-shrink:0"></span>
+      <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${s.type==='prof'?'#B5D4F4':'#C0DD97'};color:${s.type==='prof'?'#0C447C':'#27500A'};font-weight:500">${s.type==='prof'?'진료교수':'전문의'}</span>
+      <input value="${s.name}" style="flex:1;border:none;background:transparent;font-size:13px" onchange="app.staff[${i}].name=this.value">
+      <button class="btn sm danger" onclick="removeStaff(${s.id})">삭제</button>`;
+    el.appendChild(div);
+  });
+}
+function removeStaff(id){app.staff=app.staff.filter(s=>s.id!==id);renderAdminStaff();}
+function showAddStaff(){
+  document.getElementById('modal-body').innerHTML=`
+    <h3>직원 추가</h3>
+    <div style="margin:10px 0"><input type="text" id="ns-n" placeholder="이름"></div>
+    <div style="margin:10px 0">
+      <select id="ns-t">
+        <option value="spec">전문의</option>
+        <option value="prof">진료교수</option>
+      </select>
+    </div>
+    <div class="flex" style="margin-top:12px">
+      <button class="btn primary" onclick="addStaff()">추가</button>
+      <button class="btn" onclick="closeOverlay()">취소</button>
+    </div>`;
+  document.getElementById('overlay').style.display='flex';
+}
+function addStaff(){
+  const n=document.getElementById('ns-n').value,t=document.getElementById('ns-t').value;
+  if(!n)return;
+  const maxId=Math.max(0,...app.staff.map(s=>s.id));
+  app.staff.push({id:maxId+1,name:n,type:t});
+  renderAdminStaff();closeOverlay();
+}
+async function syncStaffToSheet(){
+  try{await apiPost({action:'saveStaff',staff:app.staff});alert('저장 완료');}
+  catch(e){alert('실패: '+e.message);}
+}
+async function loadStaffFromSheet(){
+  try{
+    const res=await apiGet({action:'getStaff'});
+    if(res.staff&&res.staff.length>0){
+      app.staff=res.staff.map(s=>({...s,id:Number(s.id)}));
+    }
+  }catch(e){console.log('staff 불러오기 실패',e);}
+}
+
+// 일정 현황
+async function loadAllPrefsFromSheet(){
+  try{
+    const res=await apiGet({action:'getAllPrefs'});
+    if(res.prefs){
+      app.prefs={};
+      Object.entries(res.prefs).forEach(([key,val])=>{
+        const parts=key.split('_');
+        const sn=parts[0];
+        const date=parts.slice(1).join('_');
+        if(!app.prefs[sn])app.prefs[sn]={};
+        app.prefs[sn][date]=val;
+      });
+    }
+    renderPrefsSummary();
+  }catch(e){alert('불러오기 실패: '+e.message);}
+}
+
+function renderPrefsSummary(){
+  const el=document.getElementById('prefs-summary');
+  let html='';
+  app.staff.forEach((s,i)=>{
+    const c=staffColorByIdx(i);
+    const prefs=app.prefs[s.name]||{};
+    const cnt=Object.keys(prefs).length;
+    const wishes=Object.entries(prefs).filter(([,v])=>(Array.isArray(v)?v:v?[v]:[]).some(x=>x.startsWith('wish'))).length;
+    const blocks=Object.entries(prefs).filter(([,v])=>(Array.isArray(v)?v:v?[v]:[]).some(x=>x.startsWith('block'))).length;
+    html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:0.5px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
+      <span style="width:10px;height:10px;border-radius:50%;background:${c.dot};display:inline-block"></span>
+      <span style="font-size:13px;font-weight:500;min-width:80px">${s.name}</span>
+      <span style="font-size:12px;color:var(--text2)">총 ${cnt}일</span>
+      <span class="tag-wish" style="padding:1px 8px;border-radius:3px;font-size:11px">희망 ${wishes}일</span>
+      <span class="tag-block" style="padding:1px 8px;border-radius:3px;font-size:11px">불가 ${blocks}일</span>
+    </div>`;
+  });
+  el.innerHTML=html||'<div style="color:var(--text2)">데이터 없음. Sheets에서 불러오기를 클릭하세요.</div>';
+}
+
+// ================================================
+// 스케줄 생성
+// ================================================
+function canWork(schedule,id,date,shift){
+  const dates=getAllDates();const idx=dates.indexOf(date);
+  if(isBlockedById(id,date,shift))return false;
+  if(idx>0){
+    const prev=dates[idx-1];const ps=schedule[`${id}_${prev}`];
+    if(ps&&ps!=='OFF'){
+      const endH=SHIFT_END[ps],startH=SHIFT_START[shift];
+      const rest=startH>=endH?startH-endH:startH+24-endH;
+      if(rest<SHIFT_REST[ps])return false;
+    }
+  }
+  const dow=dowMon(date),wStart=idx-dow,wEnd=wStart+6;
+  let workDays=0;
+  for(let i=Math.max(0,wStart);i<=Math.min(dates.length-1,wEnd);i++){
+    if(i!==idx){const s=schedule[`${id}_${dates[i]}`];if(s&&s!=='OFF')workDays++;}
+  }
+  if(workDays>=6)return false;
+  return true;
+}
+
+async function generateSchedule(){
+  const logEl=document.getElementById('gen-log');
+  const pw=document.getElementById('gen-pw'),pb=document.getElementById('gen-pb');
+  const alertEl=document.getElementById('gen-alert');
+  alertEl.innerHTML='';pw.style.display='block';
+  const dates=getAllDates();
+  const schedule={};
+  const violations=[];
+  const prof=app.staff.find(s=>s.type==='prof');
+  const specs=app.staff.filter(s=>s.type==='spec');
+  const specIds=specs.map(s=>s.id);
+  const firstSpec=specs[0];
+  const cnt={};
+  app.staff.forEach(s=>{cnt[s.id]={total:0,D:0,E1:0,E2:0,N:0,hol:0};});
+
+  // 진료교수 E1 계획
+  let profE1Set=new Set();
+  if(prof){
+    dates.forEach(d=>{if(PROF_E1_DAYS.includes(dowMon(d))&&!isBlockedById(prof.id,d,'E1'))profE1Set.add(d);});
+    if(profE1Set.size<PROF_E1_TOTAL){
+      for(const d of dates){
+        if(profE1Set.size>=PROF_E1_TOTAL)break;
+        if(!profE1Set.has(d)&&!isBlockedById(prof.id,d,'E1'))profE1Set.add(d);
+      }
+    }
+    if(profE1Set.size>PROF_E1_TOTAL){
+      const fixed=[...profE1Set].filter(d=>PROF_E1_DAYS.includes(dowMon(d)));
+      const extra=[...profE1Set].filter(d=>!PROF_E1_DAYS.includes(dowMon(d)));
+      profE1Set=new Set([...fixed,...extra.slice(0,Math.max(0,PROF_E1_TOTAL-fixed.length))]);
+    }
+  }
+
+  for(let di=0;di<dates.length;di++){
+    const date=dates[di];
+    pb.style.width=Math.round((di/dates.length)*100)+'%';
+    logEl.textContent=`${date} 배정 중... (${di+1}/${dates.length})`;
+    const assigned={D:null,E1:null,E2:null,N:null};
+
+    if(prof){
+      const pid=prof.id;
+      if(profE1Set.has(date)&&canWork(schedule,pid,date,'E1')){
+        assigned.E1=pid;schedule[`${pid}_${date}`]='E1';
+        cnt[pid].total++;cnt[pid].E1++;if(isSpecial(date))cnt[pid].hol++;
+      } else if(!schedule[`${pid}_${date}`]){
+        const wished=SHIFTS.find(sh=>isWishedById(pid,date,sh)&&!assigned[sh]&&canWork(schedule,pid,date,sh));
+        if(wished){assigned[wished]=pid;schedule[`${pid}_${date}`]=wished;cnt[pid].total++;cnt[pid][wished]++;if(isSpecial(date))cnt[pid].hol++;}
+      }
+    }
+
+    const remaining=SHIFTS.filter(sh=>!assigned[sh]);
+    for(const sh of remaining){
+      let cands=specIds.filter(id=>!Object.values(assigned).includes(id)&&canWork(schedule,id,date,sh));
+      cands.sort((a,b)=>{
+        const dt=cnt[a].total-cnt[b].total;if(dt!==0)return dt;
+        if(sh==='N'){const dn=cnt[a].N-cnt[b].N;if(dn!==0)return dn;}
+        if(isSpecial(date)){const dh=cnt[a].hol-cnt[b].hol;if(dh!==0)return dh;}
+        const ds2=cnt[a][sh]-cnt[b][sh];if(ds2!==0)return ds2;
+        return 0;
+      });
+      const wished=cands.filter(id=>isWishedById(id,date,sh));
+      if(wished.length>0)cands=[...wished,...cands.filter(id=>!wished.includes(id))];
+      if(cands.length>0){
+        const chosen=cands[0];
+        assigned[sh]=chosen;schedule[`${chosen}_${date}`]=sh;
+        cnt[chosen].total++;cnt[chosen][sh]++;if(isSpecial(date))cnt[chosen].hol++;
+      } else {
+        violations.push(`${date} ${sh}: 배정 불가`);
+      }
+    }
+    app.staff.forEach(s=>{if(!schedule[`${s.id}_${date}`])schedule[`${s.id}_${date}`]='OFF';});
+    await new Promise(r=>setTimeout(r,0));
+  }
+
+  // Soft 6: 전문의1 N 최소 배정 (스케줄 교환)
+  if(firstSpec&&specIds.length>1){
+    logEl.textContent='전문의1 N 최소 배정 처리 중...';
+    await new Promise(r=>setTimeout(r,0));
+    const nMap={};
+    specs.forEach(s=>{nMap[s.id]=dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length;});
+    const minN=Math.min(...specs.map(s=>nMap[s.id]));
+    if(nMap[firstSpec.id]>minN){
+      const minId=specIds.filter(id=>id!==firstSpec.id).reduce((a,b)=>nMap[a]<=nMap[b]?a:b);
+      dates.forEach(d=>{
+        const t=schedule[`${firstSpec.id}_${d}`];
+        schedule[`${firstSpec.id}_${d}`]=schedule[`${minId}_${d}`];
+        schedule[`${minId}_${d}`]=t;
+      });
+      [firstSpec.id,minId].forEach(sid=>{
+        cnt[sid]={total:0,D:0,E1:0,E2:0,N:0,hol:0};
+        dates.forEach(d=>{const sh=schedule[`${sid}_${d}`];if(sh&&sh!=='OFF'){cnt[sid].total++;cnt[sid][sh]++;if(isSpecial(d))cnt[sid].hol++;}});
+      });
+    }
+  }
+
+  app.schedule=schedule;
+  pb.style.width='100%';logEl.textContent='완료!';
+
+  // 검증
+  if(prof){
+    const e1c=dates.filter(d=>app.schedule[`${prof.id}_${d}`]==='E1').length;
+    if(e1c!==PROF_E1_TOTAL)violations.push(`진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL})`);
+  }
+  const specTotals=specs.map(s=>dates.filter(d=>{const sh=app.schedule[`${s.id}_${d}`];return sh&&sh!=='OFF';}).length);
+  const specN=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='N').length);
+  if(specTotals.length>1&&Math.max(...specTotals)-Math.min(...specTotals)>1)
+    violations.push(`전문의 간 총 근무 편차 ${Math.max(...specTotals)-Math.min(...specTotals)}일`);
+  if(specN.length>1&&Math.max(...specN)-Math.min(...specN)>1)
+    violations.push(`전문의 간 N 편차 ${Math.max(...specN)-Math.min(...specN)}회`);
+
+  if(violations.length>0)
+    alertEl.innerHTML=`<div class="alert warn"><b>주의:</b><br>${violations.join('<br>')}</div>`;
+  else
+    alertEl.innerHTML=`<div class="alert success">스케줄 생성 완료! (${dates.length}일 × ${app.staff.length}명)</div>`;
+}
+
+function clearSchedule(){
+  app.schedule={};
+  document.getElementById('gen-alert').innerHTML='';
+  document.getElementById('gen-log').textContent='';
+  document.getElementById('gen-pb').style.width='0%';
+  document.getElementById('gen-pw').style.display='none';
+}
+
+// ================================================
+// 스케줄 보기
+// ================================================
+function renderCalView(){
+  if(!app.calViewDate)app.calViewDate=app.startDate.slice(0,7);
+  const [cy,cm]=app.calViewDate.split('-').map(Number);
+  document.getElementById('vcal-label').textContent=`${cy}년 ${cm}월`;
+  // 범례
+  const leg=document.getElementById('staff-legend');leg.innerHTML='';
+  app.staff.forEach((s,i)=>{
+    const c=staffColorByIdx(i);
+    const div=document.createElement('div');
+    div.style.cssText='display:flex;align-items:center;gap:4px;font-size:11px';
+    div.innerHTML=`<span style="width:10px;height:10px;border-radius:50%;background:${c.dot};display:inline-block"></span><span>${s.name}</span>`;
+    leg.appendChild(div);
+  });
+  const firstDay=new Date(cy,cm-1,1),lastDay=new Date(cy,cm,0);
+  const firstDow=(firstDay.getDay()+6)%7;
+  const allDates=getAllDates();
+  const el=document.getElementById('vcal');el.innerHTML='';
+  const cells=[];
+  for(let i=0;i<firstDow;i++)cells.push(null);
+  for(let d=1;d<=lastDay.getDate();d++)
+    cells.push(`${cy}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+  while(cells.length%7!==0)cells.push(null);
+  cells.forEach(date=>{
+    const div=document.createElement('div');div.className='vcal-day';
+    if(!date){div.style.visibility='hidden';el.appendChild(div);return;}
+    if(!allDates.includes(date))div.style.opacity='.4';
+    if(isHoliday(date))div.classList.add('hol');
+    const dm=dowMon(date),dayColor=dm===6?'#E24B4A':dm===5?'#185FA5':'var(--text2)';
+    const holHtml=app.holidays[date]?`<span style="font-size:8px;color:#c0392b;white-space:nowrap;overflow:hidden">${app.holidays[date]}</span>`:'';
+    let shiftsHtml='';
+    if(allDates.includes(date)&&Object.keys(app.schedule).length>0){
+      SHIFTS.forEach(sh=>{
+        const worker=app.staff.find(s=>app.schedule[`${s.id}_${date}`]===sh);
+        if(worker){
+          const ci=app.staff.findIndex(s=>s.id===worker.id);
+          const c=staffColorByIdx(ci);
+          shiftsHtml+=`<div class="vshift-row" style="background:${c.bg};color:${c.tc}">
+            <span class="vshift-lbl">${sh}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${worker.name}</span>
+          </div>`;
+        }
+      });
+    }
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
+      <span style="font-size:11px;font-weight:600;color:${dayColor}">${parseInt(date.slice(8))}</span>${holHtml}</div>${shiftsHtml}`;
+    el.appendChild(div);
+  });
+  renderScheduleTable();
+}
+function renderScheduleTable(){
+  const dates=getAllDates();if(!dates.length){document.getElementById('schedule-tbl-wrap').innerHTML='';return;}
+  const wrap=document.getElementById('schedule-tbl-wrap');
+  let html='<table class="stbl"><thead><tr><th class="nc">이름</th>';
+  dates.forEach(d=>{
+    const dm=dowMon(d),tc=isHoliday(d)?'#c0392b':dm===6?'#E24B4A':dm===5?'#185FA5':'var(--text)';
+    html+=`<th style="color:${tc}">${parseInt(d.slice(8))}<br><span style="font-weight:400">${DOW_MON[dm]}</span></th>`;
+  });
+  html+='<th>총</th><th>D</th><th>E1</th><th>E2</th><th>N</th><th>특일</th></tr></thead><tbody>';
+  app.staff.forEach((s,si)=>{
+    const c=staffColorByIdx(si);
+    const counts={D:0,E1:0,E2:0,N:0};let hol=0;
+    html+=`<tr><td class="nc" style="border-left:3px solid ${c.dot}">${s.name}</td>`;
+    dates.forEach(d=>{
+      const sh=app.schedule[`${s.id}_${d}`]||'';
+      let bg='',tc2='var(--text2)';
+      if(sh&&sh!=='OFF'){bg=c.bg;tc2=c.tc;counts[sh]=(counts[sh]||0)+1;if(isSpecial(d))hol++;}
+      html+=`<td><span class="sc" style="background:${bg};color:${tc2}">${sh||'·'}</span></td>`;
+    });
+    const tot=Object.values(counts).reduce((a,b)=>a+b,0);
+    html+=`<td style="font-weight:600">${tot}</td><td>${counts.D}</td><td>${counts.E1}</td><td>${counts.E2}</td><td>${counts.N}</td><td>${hol}</td></tr>`;
+  });
+  html+='</tbody></table>';
+  wrap.innerHTML=html;
+}
+function prevMonth(){
+  let [y,m]=app.calViewDate.split('-').map(Number);
+  m--;if(m<1){m=12;y--;}
+  app.calViewDate=`${y}-${String(m).padStart(2,'0')}`;renderCalView();
+}
+function nextMonth(){
+  let [y,m]=app.calViewDate.split('-').map(Number);
+  m++;if(m>12){m=1;y++;}
+  app.calViewDate=`${y}-${String(m).padStart(2,'0')}`;renderCalView();
+}
+
+// ================================================
+// 통계
+// ================================================
+function renderStats(){
+  const el=document.getElementById('stats-wrap');
+  if(!Object.keys(app.schedule).length){
+    el.innerHTML='<div style="color:var(--text2);font-size:13px">스케줄을 먼저 생성해 주세요.</div>';return;
+  }
+  const dates=getAllDates();
+  const specs=app.staff.filter(s=>s.type==='spec');
+  const prof=app.staff.find(s=>s.type==='prof');
+  let html='';
+  if(prof){
+    const pc={D:0,E1:0,E2:0,N:0,hol:0};
+    dates.forEach(d=>{const sh=app.schedule[`${prof.id}_${d}`];if(sh&&sh!=='OFF'){pc[sh]=(pc[sh]||0)+1;if(isSpecial(d))pc.hol++;}});
+    const pt=pc.D+pc.E1+pc.E2+pc.N,ok=pc.E1===PROF_E1_TOTAL;
+    html+=`<div class="card"><div class="card-title">${prof.name}</div>
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-n">${pt}</div><div class="stat-l">총 근무</div></div>
+        <div class="stat-box"><div class="stat-n" style="color:${ok?'var(--green)':'var(--red)'}">${pc.E1}</div><div class="stat-l">E1 (목표24) ${ok?'✓':'⚠'}</div></div>
+        <div class="stat-box"><div class="stat-n">${pc.hol}</div><div class="stat-l">특일 근무</div></div>
+      </div></div>`;
+  }
+  const rows=[];
+  specs.forEach(s=>{
+    const c={D:0,E1:0,E2:0,N:0,hol:0};
+    dates.forEach(d=>{const sh=app.schedule[`${s.id}_${d}`];if(sh&&sh!=='OFF'){c[sh]=(c[sh]||0)+1;if(isSpecial(d))c.hol++;}});
+    rows.push({s,c,tot:c.D+c.E1+c.E2+c.N});
+  });
+  html+=`<div class="card"><div class="card-title">전문의 통계</div>
+    <table class="stbl" style="width:100%"><thead><tr>
+      <th class="nc">이름</th><th>총</th><th>D</th><th>E1</th><th>E2</th><th>N</th><th>특일</th>
+    </tr></thead><tbody>`;
+  rows.forEach(({s,c,tot})=>{
+    const ci=app.staff.findIndex(x=>x.id===s.id);
+    const col=staffColorByIdx(ci);
+    html+=`<tr><td class="nc" style="border-left:3px solid ${col.dot}">${s.name}</td>
+      <td><b>${tot}</b></td><td>${c.D}</td><td>${c.E1}</td><td>${c.E2}</td><td>${c.N}</td><td>${c.hol}</td></tr>`;
+  });
+  html+='</tbody></table>';
+  if(rows.length>0){
+    const chk=(arr,lbl,hard)=>{
+      const mx=Math.max(...arr),mn=Math.min(...arr),d=mx-mn,ok=d<=1;
+      const htag=hard?`<span style="font-size:9px;background:#FCEBEB;color:#791F1F;padding:1px 4px;border-radius:3px">Hard</span>`:'';
+      return `<span style="display:flex;align-items:center;gap:3px">${lbl}: <b style="color:${ok?'var(--green)':'var(--red)'}">${d}</b>${ok?'✓':'⚠'}${htag}</span>`;
+    };
+    html+=`<div style="margin-top:12px;font-size:12px;display:flex;gap:10px;flex-wrap:wrap">
+      ${chk(rows.map(r=>r.tot),'총 근무',true)}${chk(rows.map(r=>r.c.N),'N',true)}
+      ${chk(rows.map(r=>r.c.hol),'특일',false)}${chk(rows.map(r=>r.c.D),'D',false)}
+      ${chk(rows.map(r=>r.c.E1),'E1',false)}${chk(rows.map(r=>r.c.E2),'E2',false)}
+    </div>`;
+  }
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+// ================================================
+// CSV 다운로드
+// ================================================
+function exportCSV(){
+  if(!Object.keys(app.schedule).length){alert('스케줄을 먼저 생성해 주세요.');return;}
+  const dates=getAllDates();
+  const rows=[['이름','유형',...dates,'총','D','E1','E2','N','특일']];
+  app.staff.forEach(s=>{
+    const row=[s.name,s.type==='prof'?'진료교수':'전문의'];
+    const c={D:0,E1:0,E2:0,N:0,hol:0};
+    dates.forEach(d=>{
+      const sh=app.schedule[`${s.id}_${d}`]||'';row.push(sh);
+      if(sh&&sh!=='OFF'){c[sh]=(c[sh]||0)+1;if(isSpecial(d))c.hol++;}
+    });
+    const tot=c.D+c.E1+c.E2+c.N;
+    row.push(tot,c.D,c.E1,c.E2,c.N,c.hol);rows.push(row);
+  });
+  const csv='\uFEFF'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download=`응급실_스케줄_${app.startDate}.csv`;a.click();
+}
+
+// ================================================
+// 공통 오버레이
+// ================================================
+function closeOverlay(e){
+  if(!e||e.target===document.getElementById('overlay'))
+    document.getElementById('overlay').style.display='none';
+}
+</script>
+</body>
+</html>
