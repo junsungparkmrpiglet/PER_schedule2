@@ -980,15 +980,25 @@ async function generateSchedule(){
     await new Promise(r=>setTimeout(r,0));
   }
 
-  // Soft 6: 전문의1 N 최소 배정 (스케줄 교환)
+  // Soft 6: 전문의1에게 N 최소 + 총 근무 최소인 스케줄 배정 (스케줄 교환)
   if(firstSpec&&specIds.length>1){
-    logEl.textContent='전문의1 N 최소 배정 처리 중...';
+    logEl.textContent='전문의1 최소 근무 배정 처리 중...';
     await new Promise(r=>setTimeout(r,0));
-    const nMap={};
-    specs.forEach(s=>{nMap[s.id]=dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length;});
-    const minN=Math.min(...specs.map(s=>nMap[s.id]));
-    if(nMap[firstSpec.id]>minN){
-      const minId=specIds.filter(id=>id!==firstSpec.id).reduce((a,b)=>nMap[a]<=nMap[b]?a:b);
+    const nMap={},totalMap={};
+    specs.forEach(s=>{
+      nMap[s.id]=dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length;
+      totalMap[s.id]=dates.filter(d=>{const sh=schedule[`${s.id}_${d}`];return sh&&sh!=='OFF';}).length;
+    });
+    // N 우선, N 같으면 총 근무수로 비교해서 가장 적은 전문의 찾기 (전문의1 제외)
+    const minId=specIds.filter(id=>id!==firstSpec.id).reduce((a,b)=>{
+      if(nMap[a]!==nMap[b])return nMap[a]<nMap[b]?a:b;
+      return totalMap[a]<=totalMap[b]?a:b;
+    });
+    // 전문의1보다 minId가 N 적거나, N 같고 총 근무 적으면 교환
+    const shouldSwap=
+      nMap[minId]<nMap[firstSpec.id]||
+      (nMap[minId]===nMap[firstSpec.id]&&totalMap[minId]<totalMap[firstSpec.id]);
+    if(shouldSwap){
       dates.forEach(d=>{
         const t=schedule[`${firstSpec.id}_${d}`];
         schedule[`${firstSpec.id}_${d}`]=schedule[`${minId}_${d}`];
