@@ -368,9 +368,28 @@ function dowJS(d){return new Date(d+'T00:00:00').getDay();}
 function isWeekend(d){const dw=dowJS(d);return dw===0||dw===6;}
 function isHoliday(d){return !!app.holidays[d];}
 function isSpecial(d){return isWeekend(d)||isHoliday(d);}
-function getSD(){return new Date(app.startDate+'T00:00:00');}
+function parseDate(str){
+  // "2025-07-01" 또는 "2025-06-30T15:00:00.000Z" 등 모두 안전하게 처리
+  if(!str)return new Date('2025-07-01T00:00:00');
+  if(typeof str==='string'&&str.match(/^\d{4}-\d{2}-\d{2}$/))
+    return new Date(str+'T00:00:00');
+  const d=new Date(str);
+  if(isNaN(d.getTime()))return new Date('2025-07-01T00:00:00');
+  // 시간대 보정: UTC 기준으로 날짜만 추출
+  const yyyy=d.getUTCFullYear();
+  const mm=String(d.getUTCMonth()+1).padStart(2,'0');
+  const dd=String(d.getUTCDate()).padStart(2,'0');
+  return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+}
+function toDateStr(str){
+  const d=parseDate(str);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function getSD(){return parseDate(app.startDate);}
 function getED(){const d=getSD();d.setDate(d.getDate()+55);return d;}
-function ds(d){return d.toISOString().slice(0,10);}
+function ds(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 function getAllDates(){
   const arr=[];const d=getSD();
   for(let i=0;i<56;i++){arr.push(ds(d));d.setDate(d.getDate()+1);}
@@ -404,15 +423,24 @@ function isWishedById(id,d,sh){
 async function apiGet(params){
   const url=app.apiUrl;
   if(!url)throw new Error('API URL이 설정되지 않았습니다.');
-  const qs=new URLSearchParams(params).toString();
+  // URLSearchParams 대신 직접 쿼리스트링 생성
+  const qs=Object.entries(params).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
   const res=await fetch(`${url}?${qs}`);
-  return await res.json();
+  const text=await res.text();
+  try{return JSON.parse(text);}
+  catch(e){throw new Error('응답 파싱 실패: '+text.slice(0,100));}
 }
 async function apiPost(body){
   const url=app.apiUrl;
   if(!url)throw new Error('API URL이 설정되지 않았습니다.');
-  const res=await fetch(url,{method:'POST',body:JSON.stringify(body)});
-  return await res.json();
+  const res=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain'}, // Apps Script는 application/json 시 preflight 발생
+    body:JSON.stringify(body)
+  });
+  const text=await res.text();
+  try{return JSON.parse(text);}
+  catch(e){throw new Error('응답 파싱 실패: '+text.slice(0,100));}
 }
 
 // ================================================
@@ -702,10 +730,11 @@ async function testApi(){
   try{
     const res=await apiGet({action:'getConfig'});
     if(res.error)throw new Error(res.error);
-    if(res.startDate)app.startDate=res.startDate;
     el.textContent='✓ 연결 성공!';el.style.color='#1D9E75';
+    // 날짜 형식 무관하게 안전하게 처리
     if(res.startDate){
-      document.getElementById('a-start-date').value=res.startDate;
+      app.startDate=toDateStr(res.startDate);
+      document.getElementById('a-start-date').value=app.startDate;
       updatePeriodInfo();
     }
   }catch(e){
