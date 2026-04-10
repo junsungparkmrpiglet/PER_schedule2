@@ -336,9 +336,11 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
+const FIXED_API_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
+
 let app = {
   mode: null,
-  apiUrl: localStorage.getItem('apiUrl') || '',
+  apiUrl: localStorage.getItem('apiUrl') || FIXED_API_URL,
   startDate: '2025-07-01',
   holidays: {},
   staff: [
