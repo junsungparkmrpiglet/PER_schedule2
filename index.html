@@ -168,6 +168,7 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
           <span class="tag-block" style="padding:2px 10px;border-radius:4px;font-size:11px;margin-left:4px">불가</span>
           <span style="font-size:12px;color:var(--text2);margin-left:8px">날짜를 클릭해서 희망/불가 설정</span>
         </div>
+        <div id="pref-load-banner" style="display:none"></div>
         <div id="pref-cal-wrap"></div>
       </div>
       <div class="card">
@@ -523,41 +524,53 @@ async function selectStaff(s){
     dates.length?`${dates[0]} ~ ${dates[dates.length-1]}`:'';
 
   // 로딩 표시
-  const calWrap=document.getElementById('pref-cal-wrap');
-  calWrap.innerHTML='<div style="padding:2rem;text-align:center;color:#6b6b6b;font-size:13px">저장된 일정 불러오는 중...</div>';
+  document.getElementById('pref-cal-wrap').innerHTML=
+    '<div style="padding:2rem;text-align:center;color:#6b6b6b;font-size:13px">저장된 일정 불러오는 중...</div>';
 
   // Sheets에서 기존 입력 불러오기
   if(app.apiUrl){
     try{
       const res=await apiGet({action:'getPrefs',staffName:s.name});
-      if(res.error) throw new Error(res.error);
+      if(res.error)throw new Error(res.error);
       const converted={};
-      if(res.prefs){
+      if(res.prefs&&Object.keys(res.prefs).length>0){
         Object.entries(res.prefs).forEach(([key,val])=>{
-          // Apps Script에서 key를 "staffName|date" 형식으로 보냄
+          // key 형식: "이종승|2026-06-01"
           const pipeIdx=key.indexOf('|');
+          let date='';
           if(pipeIdx!==-1){
-            const date=key.slice(pipeIdx+1);
-            if(date&&date.length===10) converted[date]=val; // yyyy-MM-dd
+            date=key.slice(pipeIdx+1).trim();
           } else {
-            // 구버전 호환: "staffName_date" 형식
-            const dateMatch=key.match(/(\d{4}-\d{2}-\d{2})$/);
-            if(dateMatch) converted[dateMatch[1]]=val;
+            // 구버전 fallback: 날짜 패턴 추출
+            const m=key.match(/\d{4}-\d{2}-\d{2}/);
+            if(m)date=m[0];
+          }
+          // yyyy-MM-dd 형식 검증
+          if(date&&/^\d{4}-\d{2}-\d{2}$/.test(date)){
+            converted[date]=val;
           }
         });
       }
       app.prefs[s.name]=converted;
-      const cnt=Object.keys(converted).length;
-      if(cnt>0){
-        calWrap.innerHTML='<div style="padding:0.5rem;text-align:center;color:#085041;font-size:12px;background:#E1F5EE;border-radius:6px;margin-bottom:8px">이전에 저장한 일정 '+cnt+'일을 불러왔습니다. 수정 후 다시 제출하세요.</div>';
-      }
+      console.log('불러온 일정:', s.name, converted);
     }catch(e){
       console.log('불러오기 실패:', e.message);
-      calWrap.innerHTML='<div style="padding:0.5rem;text-align:center;color:#633806;font-size:12px;background:#FAEEDA;border-radius:6px;margin-bottom:8px">일정 불러오기 실패: '+e.message+'</div>';
     }
   }
   renderPrefCal();
   updatePrefCount();
+  // 불러온 건수 표시 (달력 위에)
+  const cnt=Object.keys(app.prefs[s.name]||{}).length;
+  const banner=document.getElementById('pref-load-banner');
+  if(banner){
+    if(cnt>0){
+      banner.style.display='block';
+      banner.textContent='이전에 저장한 일정 '+cnt+'일을 불러왔습니다. 수정 후 다시 제출하세요.';
+      banner.style.cssText='display:block;padding:8px 12px;background:#E1F5EE;color:#085041;border-radius:6px;font-size:12px;margin-bottom:8px';
+    } else {
+      banner.style.display='none';
+    }
+  }
 }
 
 function backToStaffPick(){
