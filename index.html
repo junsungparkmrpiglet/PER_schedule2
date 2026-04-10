@@ -337,7 +337,7 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
-const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbyo7Phavsgub_K1sxx8gvWGb3h-uCMxVRkRk03AZFqYh6v8ONQjtZUCS5V1RbbVkNQNPg/exec';
+const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbyuuUj34vTLaVfWVJXPxgCgoNKk3_qIDTnnrdAfhI6IldlqD7873pvaShYq8FVCO8oAiQ/exec';
 
 let app = {
   mode: null,
@@ -486,7 +486,7 @@ function promptAdmin(){
 function checkAdminPw(){
   const pw=document.getElementById('admin-pw').value;
   // 로컬 체크 (실제 운영 시 Apps Script에서 검증)
-  const stored=localStorage.getItem('adminPw')||'admin1234';
+  const stored=localStorage.getItem('adminPw')||'admin1234..';
   if(pw===stored){closeOverlay();setMode('admin');}
   else alert('비밀번호가 틀렸습니다.');
 }
