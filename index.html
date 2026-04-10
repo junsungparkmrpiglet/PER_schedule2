@@ -336,7 +336,7 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
-const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbyyAzc-iaTLjUuqmGZqsptnBwZ8evL7GWDkFoKR3su8w5Bn9oHy9Db_fkVmAwwoHK9Png/exec';
+const FIXED_API_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
 
 let app = {
   mode: null,
@@ -523,31 +523,38 @@ async function selectStaff(s){
     dates.length?`${dates[0]} ~ ${dates[dates.length-1]}`:'';
 
   // 로딩 표시
-  document.getElementById('pref-cal-wrap').innerHTML=
-    '<div style="padding:2rem;text-align:center;color:#6b6b6b;font-size:13px">기존 일정 불러오는 중...</div>';
+  const calWrap=document.getElementById('pref-cal-wrap');
+  calWrap.innerHTML='<div style="padding:2rem;text-align:center;color:#6b6b6b;font-size:13px">저장된 일정 불러오는 중...</div>';
 
   // Sheets에서 기존 입력 불러오기
   if(app.apiUrl){
     try{
       const res=await apiGet({action:'getPrefs',staffName:s.name});
-      if(res.prefs&&Object.keys(res.prefs).length>0){
-        const converted={};
-        const prefix=s.name+'_'; // "전문의1_" 처럼 이름_로 시작하는 key만 처리
+      if(res.error) throw new Error(res.error);
+      const converted={};
+      if(res.prefs){
         Object.entries(res.prefs).forEach(([key,val])=>{
-          // key 형식: "staffName_2025-07-01"
-          // staffName이 정확히 일치하는 prefix로 날짜 추출
-          if(key.startsWith(prefix)){
-            const date=key.slice(prefix.length);
-            if(date.match(/^\d{4}-\d{2}-\d{2}$/))converted[date]=val;
+          // Apps Script에서 key를 "staffName|date" 형식으로 보냄
+          const pipeIdx=key.indexOf('|');
+          if(pipeIdx!==-1){
+            const date=key.slice(pipeIdx+1);
+            if(date&&date.length===10) converted[date]=val; // yyyy-MM-dd
           } else {
-            // prefix 매칭 실패 시 fallback: 날짜 패턴으로 추출
+            // 구버전 호환: "staffName_date" 형식
             const dateMatch=key.match(/(\d{4}-\d{2}-\d{2})$/);
-            if(dateMatch)converted[dateMatch[1]]=val;
+            if(dateMatch) converted[dateMatch[1]]=val;
           }
         });
-        app.prefs[s.name]=converted;
       }
-    }catch(e){console.log('불러오기 실패(오프라인 모드)',e);}
+      app.prefs[s.name]=converted;
+      const cnt=Object.keys(converted).length;
+      if(cnt>0){
+        calWrap.innerHTML='<div style="padding:0.5rem;text-align:center;color:#085041;font-size:12px;background:#E1F5EE;border-radius:6px;margin-bottom:8px">이전에 저장한 일정 '+cnt+'일을 불러왔습니다. 수정 후 다시 제출하세요.</div>';
+      }
+    }catch(e){
+      console.log('불러오기 실패:', e.message);
+      calWrap.innerHTML='<div style="padding:0.5rem;text-align:center;color:#633806;font-size:12px;background:#FAEEDA;border-radius:6px;margin-bottom:8px">일정 불러오기 실패: '+e.message+'</div>';
+    }
   }
   renderPrefCal();
   updatePrefCount();
@@ -889,9 +896,20 @@ async function loadAllPrefsFromSheet(){
     if(res.prefs){
       app.prefs={};
       Object.entries(res.prefs).forEach(([key,val])=>{
-        const parts=key.split('_');
-        const sn=parts[0];
-        const date=parts.slice(1).join('_');
+        // 새 형식: "staffName|date", 구형식: "staffName_date"
+        let sn,date;
+        const pipeIdx=key.indexOf('|');
+        if(pipeIdx!==-1){
+          sn=key.slice(0,pipeIdx);
+          date=key.slice(pipeIdx+1);
+        } else {
+          // 구버전 호환
+          const dateMatch=key.match(/(\d{4}-\d{2}-\d{2})$/);
+          if(!dateMatch)return;
+          date=dateMatch[1];
+          sn=key.slice(0,key.length-date.length-1);
+        }
+        if(!sn||!date)return;
         if(!app.prefs[sn])app.prefs[sn]={};
         app.prefs[sn][date]=val;
       });
