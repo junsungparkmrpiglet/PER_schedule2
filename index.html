@@ -263,7 +263,8 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
         <div class="flex">
           <button class="btn primary" onclick="generateSchedule()">스케줄 생성</button>
           <button class="btn" onclick="clearSchedule()">초기화</button>
-          <button class="btn ml-auto" onclick="exportCSV()">CSV 다운로드</button>
+          <button class="btn ml-auto" onclick="exportCSV()">근무표 CSV</button>
+          <button class="btn" onclick="exportCalCSV()">캘린더 CSV</button>
         </div>
       </div>
     </div>
@@ -1314,6 +1315,48 @@ function exportCSV(){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   a.download=`응급실_스케줄_${app.startDate}.csv`;a.click();
+}
+
+// ================================================
+// 캘린더 형식 CSV 다운로드
+// ================================================
+function exportCalCSV(){
+  if(!Object.keys(app.schedule).length){alert('스케줄을 먼저 생성해 주세요.');return;}
+  const dates=getAllDates();
+  const SHIFTS=['D','E1','E2','N'];
+  const rows=[];
+
+  for(let w=0;w<8;w++){
+    const week=dates.slice(w*7,(w+1)*7);
+    if(!week.length)break;
+
+    // 날짜 행: [주차번호, "M월 D일" ...]
+    const dateRow=[`[${w+1}]`];
+    week.forEach(d=>{
+      const mon=parseInt(d.slice(5,7));
+      const day=parseInt(d.slice(8));
+      const hol=app.holidays[d];
+      dateRow.push(hol?`${mon}월 ${day}일 (${hol})`:`${mon}월 ${day}일`);
+    });
+    rows.push(dateRow);
+
+    // D/E1/E2/N 각 행
+    SHIFTS.forEach(sh=>{
+      const row=[sh];
+      week.forEach(d=>{
+        const worker=app.staff.find(s=>app.schedule[`${s.id}_${d}`]===sh);
+        row.push(worker?worker.name:'');
+      });
+      rows.push(row);
+    });
+
+    rows.push([]); // 주차 사이 빈 행
+  }
+
+  const csv='\uFEFF'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download=`응급실_스케줄_캘린더_${app.startDate}.csv`;a.click();
 }
 
 // ================================================
