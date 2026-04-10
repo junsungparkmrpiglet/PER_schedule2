@@ -527,8 +527,11 @@ async function selectStaff(s){
       if(res.prefs){
         const converted={};
         Object.entries(res.prefs).forEach(([key,val])=>{
-          // key = "staffName_date"
-          const date=key.split('_').slice(1).join('_');
+          // key = "staffName_date" 예: "전문의1_2025-07-01"
+          // staffName에 '_'가 없다고 가정, 첫 '_' 이후가 date
+          const firstUnderscore=key.indexOf('_');
+          if(firstUnderscore===-1)return;
+          const date=key.slice(firstUnderscore+1);
           converted[date]=val;
         });
         app.prefs[s.name]=converted;
@@ -717,10 +720,32 @@ document.addEventListener('DOMContentLoaded',()=>{
     app.apiUrl=this.value.trim();
     localStorage.setItem('apiUrl',app.apiUrl);
   });
-  // 초기 시작 화면
   document.getElementById('view-staff').style.display='none';
   document.getElementById('view-admin').style.display='none';
+  // 접속 시 자동으로 Sheets에서 설정 불러오기
+  autoLoadFromSheets();
 });
+
+async function autoLoadFromSheets(){
+  if(!app.apiUrl)return;
+  try{
+    const config=await apiGet({action:'getConfig'});
+    if(config&&!config.error&&config.startDate){
+      app.startDate=toDateStr(config.startDate);
+      const el=document.getElementById('a-start-date');
+      if(el)el.value=app.startDate;
+      updatePeriodInfo();
+    }
+    const staffRes=await apiGet({action:'getStaff'});
+    if(staffRes&&!staffRes.error&&staffRes.staff&&staffRes.staff.length>0){
+      app.staff=staffRes.staff.map(s=>({...s,id:Number(s.id)}));
+      renderAdminStaff();
+      renderStaffPick();
+    }
+  }catch(e){
+    console.log('자동 불러오기 스킵:', e.message);
+  }
+}
 
 async function testApi(){
   const el=document.getElementById('api-test-result');
