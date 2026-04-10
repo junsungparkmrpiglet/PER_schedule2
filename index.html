@@ -337,7 +337,7 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
-const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbxteBfU9m9M4toTDZRWMVvcYGNfLoSMvl4XCalGrwLg_HbuSuM2AUtvDKuLWAUZDUjSuw/exec';
+const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbxt86PNbPyvHv4QohJ_c-dKNzMyxvdmY2EfsH3467QsVrfAAA7ynbmsRT2mWYseTsX2YA/exec';
 
 let app = {
   mode: null,
@@ -372,19 +372,24 @@ function isWeekend(d){const dw=dowJS(d);return dw===0||dw===6;}
 function isHoliday(d){return !!app.holidays[d];}
 function isSpecial(d){return isWeekend(d)||isHoliday(d);}
 function parseDate(str){
-  // "2025-07-01" 또는 "2025-06-30T15:00:00.000Z" 등 모두 안전하게 처리
   if(!str)return new Date('2025-07-01T00:00:00');
+  // 이미 yyyy-MM-dd 형식이면 로컬 시간으로 파싱 (시차 문제 없음)
   if(typeof str==='string'&&str.match(/^\d{4}-\d{2}-\d{2}$/))
     return new Date(str+'T00:00:00');
+  // ISO 형식 "2025-05-25T00:00:00.000Z" 등 → 날짜 부분만 추출해서 로컬로 파싱
+  if(typeof str==='string'&&str.match(/^\d{4}-\d{2}-\d{2}T/))
+    return new Date(str.slice(0,10)+'T00:00:00');
   const d=new Date(str);
   if(isNaN(d.getTime()))return new Date('2025-07-01T00:00:00');
-  // 시간대 보정: UTC 기준으로 날짜만 추출
-  const yyyy=d.getUTCFullYear();
-  const mm=String(d.getUTCMonth()+1).padStart(2,'0');
-  const dd=String(d.getUTCDate()).padStart(2,'0');
+  // 로컬 시간 기준으로 날짜 추출 (getUTC 대신 getFullYear 등 사용)
+  const yyyy=d.getFullYear();
+  const mm=String(d.getMonth()+1).padStart(2,'0');
+  const dd=String(d.getDate()).padStart(2,'0');
   return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
 }
 function toDateStr(str){
+  // 이미 yyyy-MM-dd 형식이면 바로 반환 (파싱 불필요)
+  if(typeof str==='string'&&str.match(/^\d{4}-\d{2}-\d{2}$/))return str;
   const d=parseDate(str);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
