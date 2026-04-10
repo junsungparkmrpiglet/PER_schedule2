@@ -766,12 +766,30 @@ async function autoLoadFromSheets(){
   if(!app.apiUrl)return;
   try{
     const config=await apiGet({action:'getConfig'});
-    if(config&&!config.error&&config.startDate){
-      app.startDate=toDateStr(config.startDate);
-      const el=document.getElementById('a-start-date');
-      if(el)el.value=app.startDate;
-      updatePeriodInfo();
+    if(config&&!config.error){
+      // 시작일 불러오기
+      if(config.startDate){
+        app.startDate=toDateStr(config.startDate);
+        const el=document.getElementById('a-start-date');
+        if(el)el.value=app.startDate;
+        updatePeriodInfo();
+      }
+      // 공휴일 불러오기
+      if(config.holidays){
+        try{
+          const hols=typeof config.holidays==='string'
+            ?JSON.parse(config.holidays)
+            :config.holidays;
+          if(hols&&typeof hols==='object'){
+            app.holidays=hols;
+            renderHolidayChips();
+            const holEl=document.getElementById('a-holiday-status');
+            if(holEl)holEl.textContent=`공휴일 ${Object.keys(hols).length}개 불러옴`;
+          }
+        }catch(e){console.log('공휴일 파싱 실패',e);}
+      }
     }
+    // 직원 목록 불러오기
     const staffRes=await apiGet({action:'getStaff'});
     if(staffRes&&!staffRes.error&&staffRes.staff&&staffRes.staff.length>0){
       app.staff=staffRes.staff.map(s=>({...s,id:Number(s.id)}));
@@ -806,7 +824,11 @@ async function testApi(){
 async function saveConfigToSheet(){
   try{
     app.startDate=document.getElementById('a-start-date').value||app.startDate;
-    await apiPost({action:'saveConfig',config:{startDate:app.startDate}});
+    // 공휴일도 JSON으로 함께 저장
+    await apiPost({action:'saveConfig',config:{
+      startDate:app.startDate,
+      holidays:JSON.stringify(app.holidays)
+    }});
     alert('설정이 저장되었습니다.');
   }catch(e){alert('저장 실패: '+e.message);}
 }
@@ -826,7 +848,7 @@ async function loadHolidays(){
   };
   const s=ds(getSD()),e=ds(getED());let cnt=0;
   Object.entries(KR).forEach(([d,name])=>{if(d>=s&&d<=e){app.holidays[d]=name;cnt++;}});
-  document.getElementById('a-holiday-status').textContent=`공휴일 ${cnt}개 반영됨`;
+  document.getElementById('a-holiday-status').textContent=`공휴일 ${cnt}개 반영됨 (설정 저장 버튼을 눌러 저장하세요)`;
   renderHolidayChips();
 }
 function renderHolidayChips(){
@@ -852,7 +874,11 @@ function showAddHoliday(){
 }
 function addHoliday(){
   const d=document.getElementById('hol-d').value,n=document.getElementById('hol-n').value||'공휴일';
-  if(!d)return;app.holidays[d]=n;renderHolidayChips();closeOverlay();
+  if(!d)return;
+  app.holidays[d]=n;
+  renderHolidayChips();
+  closeOverlay();
+  document.getElementById('a-holiday-status').textContent='공휴일 추가됨. 설정 저장 버튼을 눌러 저장하세요.';
 }
 
 // 직원 관리
