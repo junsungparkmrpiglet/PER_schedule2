@@ -481,7 +481,7 @@ function setMode(mode){
 }
 
 function promptAdmin(){
-  openModal(`
+  document.getElementById('modal-body').innerHTML=`
     <h3 style="font-size:15px;font-weight:600;margin-bottom:1rem">관리자 로그인</h3>
     <div style="margin:12px 0">
       <input type="password" id="admin-pw" placeholder="비밀번호" style="width:100%;padding:8px 10px;border:0.5px solid #d0d0ce;border-radius:8px;font-size:13px">
@@ -489,9 +489,9 @@ function promptAdmin(){
     <div style="font-size:11px;color:#6b6b6b;margin-bottom:12px">기본 비밀번호: admin1234</div>
     <div style="display:flex;gap:8px">
       <button class="btn primary" onclick="checkAdminPw()">확인</button>
-      <button class="btn" onclick="closeOverlay()">취소</button>
-    </div>`);
-  setTimeout(()=>{ const pw=document.getElementById('admin-pw'); if(pw)pw.focus(); },100);
+      <button class="btn" onclick="closeModal()">취소</button>
+    </div>`;
+  document.getElementById('overlay').classList.add('open');
 }
 function checkAdminPw(){
   const pw=document.getElementById('admin-pw').value;
