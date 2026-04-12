@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>응급실 근무 스케줄러</title>
+<title>응급실 근무 스케줄러 v5</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -315,11 +315,6 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
 </div>
 
 <!-- Overlay / Modal -->
-<div id="overlay" class="overlay" style="display:none" onclick="closeOverlay(event)">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div id="modal-body"></div>
-  </div>
-</div>
 
 <script>
 // ================================================
@@ -351,7 +346,8 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
-const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbydnRNm8S5t85y_veMpOVEsNkVm64VOKU2sHxereQ5x7DkUlfwOcpXkO4jNl3qWhsIrgg/exec';
+const FIXED_API_URL = '
+https://script.google.com/macros/s/AKfycbydnRNm8S5t85y_veMpOVEsNkVm64VOKU2sHxereQ5x7DkUlfwOcpXkO4jNl3qWhsIrgg/exec';
 
 let app = {
   mode: null,
@@ -484,28 +480,17 @@ function setMode(mode){
 }
 
 function promptAdmin(){
-  document.getElementById('modal-body').innerHTML=`
-    <h3>관리자 로그인</h3>
+  openModal(`
+    <h3 style="font-size:15px;font-weight:600;margin-bottom:1rem">관리자 로그인</h3>
     <div style="margin:12px 0">
-      <input type="password" id="admin-pw" placeholder="비밀번호">
+      <input type="password" id="admin-pw" placeholder="비밀번호" style="width:100%;padding:8px 10px;border:0.5px solid #d0d0ce;border-radius:8px;font-size:13px">
     </div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">기본 비밀번호: admin1234</div>
-    <div class="flex">
+    <div style="font-size:11px;color:#6b6b6b;margin-bottom:12px">기본 비밀번호: admin1234</div>
+    <div style="display:flex;gap:8px">
       <button class="btn primary" onclick="checkAdminPw()">확인</button>
       <button class="btn" onclick="closeOverlay()">취소</button>
-    </div>`;
-  const ov = document.getElementById('overlay');
-  ov.style.position = 'fixed';
-  ov.style.top = '0';
-  ov.style.left = '0';
-  ov.style.width = '100%';
-  ov.style.height = '100%';
-  ov.style.display = 'flex';
-  ov.style.zIndex = '9999';
-  setTimeout(()=>{
-    const pw = document.getElementById('admin-pw');
-    if(pw) pw.focus();
-  }, 100);
+    </div>`);
+  setTimeout(()=>{ const pw=document.getElementById('admin-pw'); if(pw)pw.focus(); },100);
 }
 function checkAdminPw(){
   const pw=document.getElementById('admin-pw').value;
@@ -921,15 +906,14 @@ function renderHolidayChips(){
   });
 }
 function showAddHoliday(){
-  document.getElementById('modal-body').innerHTML=`
+  openModal(`
     <h3>공휴일 추가</h3>
     <div style="margin:10px 0"><input type="date" id="hol-d"></div>
     <div style="margin:10px 0"><input type="text" id="hol-n" placeholder="공휴일명"></div>
     <div class="flex" style="margin-top:12px">
       <button class="btn primary" onclick="addHoliday()">추가</button>
       <button class="btn" onclick="closeOverlay()">취소</button>
-    </div>`;
-  document.getElementById('overlay').style.display='flex';
+    </div>`);
 }
 function addHoliday(){
   const d=document.getElementById('hol-d').value,n=document.getElementById('hol-n').value||'공휴일';
@@ -957,7 +941,7 @@ function renderAdminStaff(){
 }
 function removeStaff(id){app.staff=app.staff.filter(s=>s.id!==id);renderAdminStaff();}
 function showAddStaff(){
-  document.getElementById('modal-body').innerHTML=`
+  openModal(`
     <h3>직원 추가</h3>
     <div style="margin:10px 0"><input type="text" id="ns-n" placeholder="이름"></div>
     <div style="margin:10px 0">
@@ -969,8 +953,7 @@ function showAddStaff(){
     <div class="flex" style="margin-top:12px">
       <button class="btn primary" onclick="addStaff()">추가</button>
       <button class="btn" onclick="closeOverlay()">취소</button>
-    </div>`;
-  document.getElementById('overlay').style.display='flex';
+    </div>`);
 }
 function addStaff(){
   const n=document.getElementById('ns-n').value,t=document.getElementById('ns-t').value;
@@ -1815,16 +1798,22 @@ function exportCalCSV(){
 // ================================================
 // 공통 오버레이
 // ================================================
+function openModal(html){
+  const ov=document.getElementById('overlay');
+  document.getElementById('modal-body').innerHTML=html;
+  ov.style.display='flex';
+}
 function closeOverlay(e){
   if(!e||e.target===document.getElementById('overlay')){
-    const ov=document.getElementById('overlay');
-    ov.style.display='none';
+    document.getElementById('overlay').style.display='none';
   }
 }
 function closeModal(){
-  const ov=document.getElementById('overlay');
-  ov.style.display='none';
+  document.getElementById('overlay').style.display='none';
 }
 </script>
+<div id="overlay" onclick="closeOverlay(event)" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center">
+  <div id="modal-body" onclick="event.stopPropagation()" style="background:#fff;border-radius:12px;padding:1.5rem;min-width:300px;max-width:420px;max-height:90vh;overflow-y:auto;position:relative;z-index:100000"></div>
+</div>
 </body>
 </html>
