@@ -273,14 +273,16 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
         1. 개인 불가 일정 반영 &nbsp;·&nbsp; 2. 개인 희망 일정 반영 &nbsp;·&nbsp;
         3. D·E1 근무 후 15시간 이상 휴게 &nbsp;·&nbsp; 4. E2·N 근무 후 23시간 이상 휴게 &nbsp;·&nbsp;
         5. 15일 이상 연속 off 없게<br>
-        <b>2순위 (균등 배분)</b><br>
-        1. 전문의 간 총 근무 차이 ≤1 &nbsp;·&nbsp; 2. 전문의 간 N 차이 ≤1 &nbsp;·&nbsp;
-        3. 전문의 간 E2 차이 ≤1 &nbsp;·&nbsp; 4. 전문의 간 주말/공휴일 근무 차이 ≤1 &nbsp;·&nbsp;
-        5. 진료교수 화·목·토 E1 고정 (8주 24개)<br>
-        <b>3순위 (가능한 한)</b><br>
-        1. 진료교수 희망/불가 반영 시 월·수·금·일 E1 배정 가능 &nbsp;·&nbsp;
-        2. 이종승 N·총근무 최소 배정 &nbsp;·&nbsp; 3. 주 5회 이상 근무 금지 &nbsp;·&nbsp;
-        4. 7일 이상 연속 off 지양 &nbsp;·&nbsp; 5. 전문의 간 D·E1 차이 ≤2
+        <b>1순위 (필수, 위반 시 사유 표시)</b><br>
+        1. 개인 불가 일정 반영 &nbsp;·&nbsp; 2. 개인 희망 일정 반영 &nbsp;·&nbsp;
+        3. D·E1 근무 후 15시간↑ 휴게 &nbsp;·&nbsp; 4. E2·N 근무 후 23시간↑ 휴게 &nbsp;·&nbsp;
+        5. 15일 이상 연속 off 없게 &nbsp;·&nbsp; 6. 전문의 간 총 근무 차이 ≤1 &nbsp;·&nbsp;
+        7. 전문의 간 N 차이 ≤1<br>
+        <b>2순위 (가능한 한 준수)</b><br>
+        1. 전문의 간 E2 차이 ≤1 &nbsp;·&nbsp; 2. 진료교수 화·목·토 E1 고정 (8주 24개) &nbsp;·&nbsp;
+        3. 진료교수 희망/불가 시 월·수·금·일 E1 가능 &nbsp;·&nbsp;
+        4. 전문의 간 E1 차이 ≤2 &nbsp;·&nbsp; 5. 전문의 간 D 차이 ≤2 &nbsp;·&nbsp;
+        6. 이종승 N·총근무 최소 배정 &nbsp;·&nbsp; 7. 주 5회 이상 근무 금지
       </div>
     </div>
 
@@ -812,6 +814,30 @@ async function autoLoadFromSheets(){
       renderAdminStaff();
       renderStaffPick();
     }
+    // 전체 직원 희망/불가 일정 미리 불러오기 (스케줄 생성 시 반영)
+    try{
+      const allPrefsRes=await apiGet({action:'getAllPrefs'});
+      if(allPrefsRes&&!allPrefsRes.error&&allPrefsRes.prefs){
+        app.prefs={};
+        Object.entries(allPrefsRes.prefs).forEach(([key,val])=>{
+          const pipeIdx=key.indexOf('|');
+          let sn,date;
+          if(pipeIdx!==-1){
+            sn=key.slice(0,pipeIdx);
+            date=key.slice(pipeIdx+1).trim();
+          } else {
+            const m=key.match(/(\d{4}-\d{2}-\d{2})$/);
+            if(!m)return;
+            date=m[1];
+            sn=key.slice(0,key.length-date.length-1);
+          }
+          if(!sn||!date)return;
+          if(!app.prefs[sn])app.prefs[sn]={};
+          app.prefs[sn][date]=val;
+        });
+        console.log('전체 희망/불가 일정 불러오기 완료:', Object.keys(app.prefs).length+'명');
+      }
+    }catch(e){console.log('희망/불가 일정 불러오기 실패:', e.message);}
   }catch(e){
     console.log('자동 불러오기 스킵:', e.message);
   }
@@ -1025,7 +1051,7 @@ function canWork(schedule,id,date,shift){
       if(rest<SHIFT_REST[ps])return false;
     }
   }
-  // 3순위3: 주 5회 이상 근무 금지
+  // 2순위7: 주 5회 이상 근무 금지
   const dow=dowMon(date),wStart=idx-dow,wEnd=wStart+6;
   let workDays=0;
   for(let i=Math.max(0,wStart);i<=Math.min(dates.length-1,wEnd);i++){
@@ -1033,24 +1059,6 @@ function canWork(schedule,id,date,shift){
   }
   if(workDays>=5)return false;
   return true;
-}
-
-// 연속 off 체크: 해당 날짜에 배정 시 off 연속일 계산
-function getConsecutiveOff(schedule,id,date){
-  const dates=getAllDates();const idx=dates.indexOf(date);
-  // 현재 날짜 기준 앞쪽 연속 off 수
-  let before=0;
-  for(let i=idx-1;i>=0;i--){
-    const s=schedule[`${id}_${dates[i]}`];
-    if(!s||s==='OFF')before++;else break;
-  }
-  // 뒤쪽 연속 off 수
-  let after=0;
-  for(let i=idx+1;i<dates.length;i++){
-    const s=schedule[`${id}_${dates[i]}`];
-    if(!s||s==='OFF')after++;else break;
-  }
-  return {before,after};
 }
 
 async function generateSchedule(){
@@ -1121,17 +1129,16 @@ async function generateSchedule(){
       let cands=specIds.filter(id=>!Object.values(assigned).includes(id)&&canWork(schedule,id,date,sh));
 
       cands.sort((a,b)=>{
-        // 2순위1: 총 근무 균등
+        // 1순위6: 총 근무 균등 (최우선)
         const dt=cnt[a].total-cnt[b].total;if(dt!==0)return dt;
-        // 2순위2: N 균등
+        // 1순위7: N 균등
         if(sh==='N'){const dn=cnt[a].N-cnt[b].N;if(dn!==0)return dn;}
-        // 2순위3: E2 균등
+        // 2순위1: E2 균등
         if(sh==='E2'){const de=cnt[a].E2-cnt[b].E2;if(de!==0)return de;}
-        // 2순위4: 주말/공휴일 근무 균등
-        if(isSpecial(date)){const dh=cnt[a].hol-cnt[b].hol;if(dh!==0)return dh;}
-        // 3순위: D/E1 균등 (2개 이상 차이 나지 않도록)
-        if(sh==='D'){const dd=cnt[a].D-cnt[b].D;if(dd!==0)return dd;}
+        // 2순위4: E1 균등
         if(sh==='E1'){const de1=cnt[a].E1-cnt[b].E1;if(de1!==0)return de1;}
+        // 2순위5: D 균등
+        if(sh==='D'){const dd=cnt[a].D-cnt[b].D;if(dd!==0)return dd;}
         return 0;
       });
 
@@ -1215,21 +1222,21 @@ async function generateSchedule(){
   const specTotals=specs.map(s=>dates.filter(d=>{const sh=app.schedule[`${s.id}_${d}`];return sh&&sh!=='OFF';}).length);
   const specN=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='N').length);
   const specE2=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='E2').length);
-  const specHol=specs.map(s=>dates.filter(d=>isSpecial(d)&&app.schedule[`${s.id}_${d}`]&&app.schedule[`${s.id}_${d}`]!=='OFF').length);
-  const specD=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='D').length);
   const specE1=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='E1').length);
+  const specD=specs.map(s=>dates.filter(d=>app.schedule[`${s.id}_${d}`]==='D').length);
+  // 1순위 위반 검증
   if(specTotals.length>1&&Math.max(...specTotals)-Math.min(...specTotals)>1)
-    violations.push(`전문의 간 총 근무 편차 ${Math.max(...specTotals)-Math.min(...specTotals)}일 (2순위1)`);
+    violations.push(`[1순위6 위반] 전문의 간 총 근무 편차 ${Math.max(...specTotals)-Math.min(...specTotals)}일`);
   if(specN.length>1&&Math.max(...specN)-Math.min(...specN)>1)
-    violations.push(`전문의 간 N 편차 ${Math.max(...specN)-Math.min(...specN)}회 (2순위2)`);
+    violations.push(`[1순위7 위반] 전문의 간 N 편차 ${Math.max(...specN)-Math.min(...specN)}회`);
+  // 2순위 위반 검증
   if(specE2.length>1&&Math.max(...specE2)-Math.min(...specE2)>1)
-    violations.push(`전문의 간 E2 편차 ${Math.max(...specE2)-Math.min(...specE2)}회 (2순위3)`);
-  if(specHol.length>1&&Math.max(...specHol)-Math.min(...specHol)>1)
-    violations.push(`전문의 간 주말/공휴일 근무 편차 ${Math.max(...specHol)-Math.min(...specHol)}회 (2순위4)`);
-  if(specD.length>1&&Math.max(...specD)-Math.min(...specD)>1)
-    violations.push(`전문의 간 D 편차 ${Math.max(...specD)-Math.min(...specD)}회 (3순위)`);
-  if(specE1.length>1&&Math.max(...specE1)-Math.min(...specE1)>1)
-    violations.push(`전문의 간 E1 편차 ${Math.max(...specE1)-Math.min(...specE1)}회 (3순위)`);
+    violations.push(`[2순위1 위반] 전문의 간 E2 편차 ${Math.max(...specE2)-Math.min(...specE2)}회`);
+  if(specE1.length>1&&Math.max(...specE1)-Math.min(...specE1)>2)
+    violations.push(`[2순위4 위반] 전문의 간 E1 편차 ${Math.max(...specE1)-Math.min(...specE1)}회`);
+  if(specD.length>1&&Math.max(...specD)-Math.min(...specD)>2)
+    violations.push(`[2순위5 위반] 전문의 간 D 편차 ${Math.max(...specD)-Math.min(...specD)}회`);
+  // 1순위5: 15일 이상 연속 off 체크는 위에서 이미 처리
 
   let html='';
   if(violations.length>0)
