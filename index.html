@@ -84,8 +84,8 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
 .tag-block{background:#F4C0D1;color:#72243E}
 
 /* Pref Modal */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200}
-.modal{background:var(--bg);border-radius:var(--radius-lg);padding:1.5rem;width:340px;max-width:95vw;border:0.5px solid var(--border);max-height:90vh;overflow-y:auto}
+.overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999}
+.modal{background:var(--bg);border-radius:var(--radius-lg);padding:1.5rem;width:340px;max-width:95vw;border:0.5px solid var(--border);max-height:90vh;overflow-y:auto;position:relative;z-index:10000}
 .modal h3{font-size:15px;font-weight:600;margin-bottom:12px}
 .shift-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
 .shift-btn{padding:9px;border:0.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;text-align:center;background:var(--bg2);transition:all .1s}
@@ -487,15 +487,25 @@ function promptAdmin(){
   document.getElementById('modal-body').innerHTML=`
     <h3>관리자 로그인</h3>
     <div style="margin:12px 0">
-      <input type="password" id="admin-pw" placeholder="비밀번호" autofocus>
+      <input type="password" id="admin-pw" placeholder="비밀번호">
     </div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">기본 비밀번호: admin1234 (Apps Script에서 변경 가능)</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">기본 비밀번호: admin1234</div>
     <div class="flex">
       <button class="btn primary" onclick="checkAdminPw()">확인</button>
       <button class="btn" onclick="closeOverlay()">취소</button>
     </div>`;
-  document.getElementById('overlay').style.display='flex';
-  setTimeout(()=>document.getElementById('admin-pw').focus(),50);
+  const ov = document.getElementById('overlay');
+  ov.style.position = 'fixed';
+  ov.style.top = '0';
+  ov.style.left = '0';
+  ov.style.width = '100%';
+  ov.style.height = '100%';
+  ov.style.display = 'flex';
+  ov.style.zIndex = '9999';
+  setTimeout(()=>{
+    const pw = document.getElementById('admin-pw');
+    if(pw) pw.focus();
+  }, 100);
 }
 function checkAdminPw(){
   const pw=document.getElementById('admin-pw').value;
@@ -1806,8 +1816,14 @@ function exportCalCSV(){
 // 공통 오버레이
 // ================================================
 function closeOverlay(e){
-  if(!e||e.target===document.getElementById('overlay'))
-    document.getElementById('overlay').style.display='none';
+  if(!e||e.target===document.getElementById('overlay')){
+    const ov=document.getElementById('overlay');
+    ov.style.display='none';
+  }
+}
+function closeModal(){
+  const ov=document.getElementById('overlay');
+  ov.style.display='none';
 }
 </script>
 </body>
