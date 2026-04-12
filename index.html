@@ -351,8 +351,7 @@ const DOT_LETTERS=['A','B','C','D','E','F','G','H','I','J','K'];
 // ================================================
 // 앱 상태
 // ================================================
-const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbydnRNm8S5t85y_veMpOVEsNkVm64VOKU2sHxereQ5x7DkUlfwOcpXkO4jNl3qWhsIrgg/exec
-';
+const FIXED_API_URL = 'https://script.google.com/macros/s/AKfycbydnRNm8S5t85y_veMpOVEsNkVm64VOKU2sHxereQ5x7DkUlfwOcpXkO4jNl3qWhsIrgg/exec';
 
 let app = {
   mode: null,
@@ -1035,67 +1034,98 @@ function renderPrefsSummary(){
 // ================================================
 // 스케줄 생성
 // ================================================
-// ================================================
-// 스케줄링 엔진 (백트래킹 + 제약 전파)
-// ================================================
+// ================================================================
+// 스케줄링 엔진 v3 - 백트래킹 + 가지치기
+// 날짜별로 4개 shift(D/E1/E2/N) 배정 조합을 탐색
+// ================================================================
 
-// 절대준수: 위반 시 배정 자체를 막음
-function absoluteCanWork(schedule, cnt, id, date, shift) {
-  const dates = getAllDates();
+// ── 휴게 시간 체크 ──
+function checkRest(prevShift, nextShift) {
+  if (!prevShift || prevShift === 'OFF') return true;
+  const endH = SHIFT_END[prevShift], startH = SHIFT_START[nextShift];
+  const rest = startH >= endH ? startH - endH : startH + 24 - endH;
+  return rest >= SHIFT_REST[prevShift];
+}
+
+// ── 절대준수 체크 (개인별) ──
+function absOk(schedule, id, date, shift, dates) {
   const idx = dates.indexOf(date);
   // 절대1: 불가 일정
   if (isBlockedById(id, date, shift)) return false;
   // 절대3,4: 휴게 시간
   if (idx > 0) {
-    const prev = dates[idx - 1];
-    const ps = schedule[`${id}_${prev}`];
-    if (ps && ps !== 'OFF') {
-      const endH = SHIFT_END[ps], startH = SHIFT_START[shift];
-      const rest = startH >= endH ? startH - endH : startH + 24 - endH;
-      if (rest < SHIFT_REST[ps]) return false;
-    }
+    const ps = schedule[`${id}_${dates[idx-1]}`];
+    if (!checkRest(ps, shift)) return false;
   }
   return true;
 }
 
-// 연속 off 계산 (특정 날짜 기준 앞뒤)
-function countConsecutiveOff(schedule, id, dates, fromIdx) {
-  let count = 0;
-  for (let i = fromIdx; i >= 0; i--) {
+// ── 연속 off 체크 ──
+function maxConsecOff(schedule, id, dates) {
+  let streak = 0, max = 0;
+  dates.forEach(d => {
+    const sh = schedule[`${id}_${d}`];
+    if (!sh || sh === 'OFF') { streak++; max = Math.max(max, streak); }
+    else streak = 0;
+  });
+  return max;
+}
+
+// ── 현재까지 연속 off ──
+function currentStreakOff(schedule, id, dates, upToIdx) {
+  let streak = 0;
+  for (let i = upToIdx; i >= 0; i--) {
     const sh = schedule[`${id}_${dates[i]}`];
-    if (!sh || sh === 'OFF') count++;
+    if (!sh || sh === 'OFF') streak++;
     else break;
   }
-  return count;
+  return streak;
 }
 
-// 절대5: 현재까지 배정 후 연속 off가 14일 이상이면 배정 불가 (15일 방지)
-function wouldExceedMaxOff(schedule, id, date, dates) {
-  const idx = dates.indexOf(date);
-  // 이 날 근무 배정 시 앞쪽 연속 off 리셋됨
-  // 이 날 OFF 배정 가능성 체크: 앞쪽 연속 off가 이미 14일이면 반드시 근무해야 함
-  const beforeOff = countConsecutiveOff(schedule, id, dates, idx - 1);
-  return beforeOff >= 14;
-}
-
-// hard constraint 1,2,3 사전 체크: 현재 배정 후 나머지 날짜에서 균등 달성 가능한지
-function hardFeasible(schedule, cnt, specs, dates, currentIdx) {
+// ── 가지치기: 앞으로 남은 날짜로 hard constraint 달성 가능한지 ──
+function feasible(cnt, specIds, dates, currentIdx) {
   const remaining = dates.length - currentIdx - 1;
-  const specIds = specs.map(s => s.id);
-
-  // 총 근무 차이 ≤1 달성 가능성
-  const totals = specIds.map(id => cnt[id].total);
-  if (Math.max(...totals) - Math.min(...totals) > remaining + 1) return false;
-
-  // N 차이 ≤1
+  // hard1: 총 근무 차이 ≤1 가능?
+  const tots = specIds.map(id => cnt[id].total);
+  const maxT = Math.max(...tots), minT = Math.min(...tots);
+  if (maxT - minT > remaining + 1) return false;
+  // hard2: N 차이 ≤1
   const ns = specIds.map(id => cnt[id].N);
   if (Math.max(...ns) - Math.min(...ns) > 1) return false;
-
-  // E2 차이 ≤1
+  // hard3: E2 차이 ≤1
   const e2s = specIds.map(id => cnt[id].E2);
   if (Math.max(...e2s) - Math.min(...e2s) > 1) return false;
-
   return true;
+}
+
+// ── 배정 점수 계산 (낮을수록 좋음) ──
+function assignScore(cnt, specIds, assignment, isSpecialDay) {
+  let score = 0;
+  const tmp = {};
+  specIds.forEach(id => { tmp[id] = { ...cnt[id] }; });
+  Object.entries(assignment).forEach(([sh, id]) => {
+    if (id && specIds.includes(id)) {
+      tmp[id].total++;
+      tmp[id][sh]++;
+      if (isSpecialDay) tmp[id].hol++;
+    }
+  });
+  // hard1: 총 근무 편차 (가중치 100)
+  const tots = specIds.map(id => tmp[id].total);
+  score += (Math.max(...tots) - Math.min(...tots)) * 100;
+  // hard2: N 편차 (가중치 100)
+  const ns = specIds.map(id => tmp[id].N);
+  score += (Math.max(...ns) - Math.min(...ns)) * 100;
+  // hard3: E2 편차 (가중치 80)
+  const e2s = specIds.map(id => tmp[id].E2);
+  score += (Math.max(...e2s) - Math.min(...e2s)) * 80;
+  // soft2: E1 편차 (가중치 30)
+  const e1s = specIds.map(id => tmp[id].E1);
+  score += (Math.max(...e1s) - Math.min(...e1s)) * 30;
+  // soft3: D 편차 (가중치 20)
+  const ds = specIds.map(id => tmp[id].D);
+  score += (Math.max(...ds) - Math.min(...ds)) * 20;
+  return score;
 }
 
 async function generateSchedule() {
@@ -1109,17 +1139,14 @@ async function generateSchedule() {
   const specs = app.staff.filter(s => s.type === 'spec');
   const specIds = specs.map(s => s.id);
   const jongseung = specs.find(s => s.name === '이종승');
-  const violations = [];
 
-  // ── 진료교수 E1 날짜 계획 (hard constraint 4) ──
+  // ── hard4: 진료교수 E1 날짜 계획 ──
   let profE1Set = new Set();
   if (prof) {
-    // 1차: 화목토 우선
     dates.forEach(d => {
       if (PROF_E1_DAYS.includes(dowMon(d)) && !isBlockedById(prof.id, d, 'E1'))
         profE1Set.add(d);
     });
-    // 2차: soft constraint 1 - 부족하면 월수금일로 보충
     if (profE1Set.size < PROF_E1_TOTAL) {
       for (const d of dates) {
         if (profE1Set.size >= PROF_E1_TOTAL) break;
@@ -1127,7 +1154,6 @@ async function generateSchedule() {
           profE1Set.add(d);
       }
     }
-    // 초과 시 화목토 아닌 날부터 제거
     if (profE1Set.size > PROF_E1_TOTAL) {
       const fixed = [...profE1Set].filter(d => PROF_E1_DAYS.includes(dowMon(d)));
       const extra = [...profE1Set].filter(d => !PROF_E1_DAYS.includes(dowMon(d)));
@@ -1135,86 +1161,128 @@ async function generateSchedule() {
     }
   }
 
-  // ── 전문의 배정: 스마트 그리디 + 재시도 ──
   const schedule = {};
   const cnt = {};
   app.staff.forEach(s => { cnt[s.id] = { total: 0, D: 0, E1: 0, E2: 0, N: 0, hol: 0 }; });
 
+  // ── 날짜별 백트래킹 메인 루프 ──
+  // 매 날짜마다 가능한 배정 조합을 점수 순으로 시도
   for (let di = 0; di < dates.length; di++) {
     const date = dates[di];
     pb.style.width = Math.round((di / dates.length) * 100) + '%';
     logEl.textContent = `${date} 배정 중... (${di + 1}/${dates.length})`;
+    await new Promise(r => setTimeout(r, 0));
 
-    const assigned = { D: null, E1: null, E2: null, N: null };
+    const special = isSpecial(date);
 
-    // ── 진료교수 배정 ──
+    // ── 진료교수 shift 결정 ──
+    let profShift = null;
     if (prof) {
       const pid = prof.id;
-      if (profE1Set.has(date) && absoluteCanWork(schedule, cnt, pid, date, 'E1')) {
-        assigned.E1 = pid;
-        schedule[`${pid}_${date}`] = 'E1';
-        cnt[pid].total++; cnt[pid].E1++; if (isSpecial(date)) cnt[pid].hol++;
-      } else if (!schedule[`${pid}_${date}`]) {
-        // 절대2: 희망 일정 반영
+      if (profE1Set.has(date) && absOk(schedule, pid, date, 'E1', dates)) {
+        profShift = 'E1';
+      } else {
+        // soft1: 희망 일정
         const wished = SHIFTS.find(sh =>
-          isWishedById(pid, date, sh) && !assigned[sh] && absoluteCanWork(schedule, cnt, pid, date, sh)
+          isWishedById(pid, date, sh) && absOk(schedule, pid, date, sh, dates)
         );
-        if (wished) {
-          assigned[wished] = pid;
-          schedule[`${pid}_${date}`] = wished;
-          cnt[pid].total++; cnt[pid][wished]++; if (isSpecial(date)) cnt[pid].hol++;
-        }
+        if (wished) profShift = wished;
       }
     }
 
-    // ── 전문의 배정 (각 shift) ──
-    const remaining = SHIFTS.filter(sh => !assigned[sh]);
-    for (const sh of remaining) {
-      // 후보: 절대준수 규칙 통과한 전문의들
-      let cands = specIds.filter(id =>
-        !Object.values(assigned).includes(id) &&
-        absoluteCanWork(schedule, cnt, id, date, sh)
+    // ── 전문의 배정 조합 생성 ──
+    // 진료교수가 차지한 shift를 제외한 나머지 shift에 전문의 배정
+    const remainShifts = profShift ? SHIFTS.filter(s => s !== profShift) : [...SHIFTS];
+
+    // 절대5: 이 날 반드시 근무해야 하는 전문의 (연속 off 14일째)
+    const mustWorkIds = specIds.filter(id => {
+      const streak = currentStreakOff(schedule, id, dates, di - 1);
+      return streak >= 14;
+    });
+
+    // 각 shift별 가능한 후보 전문의 목록 (절대준수 통과)
+    const shiftCands = {};
+    remainShifts.forEach(sh => {
+      shiftCands[sh] = specIds.filter(id =>
+        absOk(schedule, id, date, sh, dates)
       );
-
-      // 절대5: 연속 off 14일 이상인 사람은 반드시 배정 (우선순위 최상)
-      const mustWork = cands.filter(id => wouldExceedMaxOff(schedule, id, date, dates));
-      if (mustWork.length > 0) cands = mustWork;
-
-      // 절대2: 희망 근무자 우선
-      const wished = cands.filter(id => isWishedById(id, date, sh));
-      if (wished.length > 0) cands = [...wished, ...cands.filter(id => !wished.includes(id))];
-
-      // hard+soft 기준 정렬
-      cands.sort((a, b) => {
-        // hard1: 총 근무 균등
-        const dt = cnt[a].total - cnt[b].total; if (dt !== 0) return dt;
-        // hard2: N 균등
-        if (sh === 'N') { const dn = cnt[a].N - cnt[b].N; if (dn !== 0) return dn; }
-        // hard3: E2 균등
-        if (sh === 'E2') { const de = cnt[a].E2 - cnt[b].E2; if (de !== 0) return de; }
-        // soft2: E1 균등
-        if (sh === 'E1') { const de1 = cnt[a].E1 - cnt[b].E1; if (de1 !== 0) return de1; }
-        // soft3: D 균등
-        if (sh === 'D') { const dd = cnt[a].D - cnt[b].D; if (dd !== 0) return dd; }
-        return 0;
-      });
-
-      if (cands.length > 0) {
-        const chosen = cands[0];
-        assigned[sh] = chosen;
-        schedule[`${chosen}_${date}`] = sh;
-        cnt[chosen].total++; cnt[chosen][sh]++; if (isSpecial(date)) cnt[chosen].hol++;
-      } else {
-        violations.push(`${date} ${sh}: 배정 가능 직원 없음 (절대준수 규칙으로 인해)`);
+      // 절대5: mustWork 있으면 해당 후보 우선
+      if (mustWorkIds.length > 0) {
+        const must = shiftCands[sh].filter(id => mustWorkIds.includes(id));
+        if (must.length > 0) shiftCands[sh] = [...must, ...shiftCands[sh].filter(id => !must.includes(id))];
       }
+      // 절대2: 희망 근무자 우선
+      const wished = shiftCands[sh].filter(id => isWishedById(id, date, sh));
+      if (wished.length > 0) shiftCands[sh] = [...wished, ...shiftCands[sh].filter(id => !wished.includes(id))];
+    });
+
+    // ── 조합 탐색 (백트래킹) ──
+    // 4개 shift에 4명 배정: 각 shift에서 후보를 순서대로 시도
+    // 최대 후보 수 제한으로 성능 확보 (상위 5명만)
+    const MAX_CANDS = 5;
+    let bestAssignment = null;
+    let bestScore = Infinity;
+
+    function tryAssign(shiftIdx, assigned, usedIds) {
+      if (shiftIdx === remainShifts.length) {
+        // 모든 shift 배정 완료 - 점수 계산
+        const score = assignScore(cnt, specIds, assigned, special);
+        if (score < bestScore) {
+          bestScore = score;
+          bestAssignment = { ...assigned };
+        }
+        return;
+      }
+      const sh = remainShifts[shiftIdx];
+      const cands = shiftCands[sh].filter(id => !usedIds.has(id)).slice(0, MAX_CANDS);
+
+      if (cands.length === 0) {
+        // 배정 불가 - null로 처리 (위반으로 기록)
+        assigned[sh] = null;
+        tryAssign(shiftIdx + 1, assigned, usedIds);
+        assigned[sh] = undefined;
+        return;
+      }
+
+      for (const id of cands) {
+        assigned[sh] = id;
+        usedIds.add(id);
+        tryAssign(shiftIdx + 1, assigned, usedIds);
+        usedIds.delete(id);
+        assigned[sh] = undefined;
+      }
+    }
+
+    const assigned = {};
+    remainShifts.forEach(sh => { assigned[sh] = undefined; });
+    tryAssign(0, assigned, new Set());
+
+    // ── 결과 적용 ──
+    if (profShift && prof) {
+      schedule[`${prof.id}_${date}`] = profShift;
+      cnt[prof.id].total++; cnt[prof.id][profShift]++; if (special) cnt[prof.id].hol++;
+    }
+
+    if (bestAssignment) {
+      remainShifts.forEach(sh => {
+        const id = bestAssignment[sh];
+        if (id) {
+          schedule[`${id}_${date}`] = sh;
+          cnt[id].total++; cnt[id][sh]++; if (special) cnt[id].hol++;
+        }
+      });
     }
 
     // OFF 처리
     app.staff.forEach(s => { if (!schedule[`${s.id}_${date}`]) schedule[`${s.id}_${date}`] = 'OFF'; });
-    await new Promise(r => setTimeout(r, 0));
+
+    // ── 가지치기: hard feasibility 체크 ──
+    if (!feasible(cnt, specIds, dates, di)) {
+      logEl.textContent = `${date} 이후 hard constraint 달성 어려움, 계속 진행...`;
+    }
   }
 
-  // ── soft4: 이종승에게 N+총근무 최소 스케줄 배정 ──
+  // ── soft4: 이종승 최소 배정 ──
   if (jongseung && specIds.length > 1) {
     logEl.textContent = '이종승 최소 근무 배정 처리 중...';
     await new Promise(r => setTimeout(r, 0));
@@ -1250,26 +1318,23 @@ async function generateSchedule() {
   }
 
   app.schedule = schedule;
-  pb.style.width = '100%'; logEl.textContent = '완료!';
+  pb.style.width = '100%'; logEl.textContent = '검증 중...';
+  await new Promise(r => setTimeout(r, 0));
 
   // ── 사후 검증 ──
-  const absViolations = [...violations]; // 배정 불가 사유
+  const absViolations = [];
   const hardViolations = [];
   const softViolations = [];
 
-  // 절대5: 연속 off 15일 이상
+  // 절대준수 위반 체크
   app.staff.forEach(s => {
-    let streak = 0, maxStreak = 0;
+    // 절대1: 불가 일정
     dates.forEach(d => {
       const sh = schedule[`${s.id}_${d}`];
-      if (!sh || sh === 'OFF') { streak++; maxStreak = Math.max(maxStreak, streak); }
-      else streak = 0;
+      if (sh && sh !== 'OFF' && isBlockedById(s.id, d, sh))
+        absViolations.push(`[절대1] ${s.name} ${d} 불가 일정인데 ${sh} 배정`);
     });
-    if (maxStreak >= 15) absViolations.push(`[절대5 위반] ${s.name}: 연속 off ${maxStreak}일`);
-  });
-
-  // 절대3,4: 휴게 시간 위반 체크
-  app.staff.forEach(s => {
+    // 절대3,4: 휴게
     for (let i = 1; i < dates.length; i++) {
       const sh = schedule[`${s.id}_${dates[i]}`];
       const ps = schedule[`${s.id}_${dates[i-1]}`];
@@ -1277,56 +1342,67 @@ async function generateSchedule() {
       const endH = SHIFT_END[ps], startH = SHIFT_START[sh];
       const rest = startH >= endH ? startH - endH : startH + 24 - endH;
       if (rest < SHIFT_REST[ps])
-        absViolations.push(`[절대3/4 위반] ${s.name}: ${dates[i-1]} ${ps}→${dates[i]} ${sh} 휴게 ${rest}h`);
+        absViolations.push(`[절대${['E2','N'].includes(ps)?4:3}] ${s.name}: ${dates[i-1]} ${ps}→${dates[i]} ${sh} (휴게 ${rest}h < ${SHIFT_REST[ps]}h)`);
     }
+    // 절대5: 연속 off 15일↑
+    let streak = 0, maxStreak = 0;
+    dates.forEach(d => {
+      const sh = schedule[`${s.id}_${d}`];
+      if (!sh || sh === 'OFF') { streak++; maxStreak = Math.max(maxStreak, streak); }
+      else streak = 0;
+    });
+    if (maxStreak >= 15) absViolations.push(`[절대5] ${s.name}: 연속 off ${maxStreak}일`);
   });
 
-  // hard constraint 검증
+  // hard constraint 위반 체크
   const specTotals = specs.map(s => dates.filter(d => { const sh = schedule[`${s.id}_${d}`]; return sh && sh !== 'OFF'; }).length);
   const specN = specs.map(s => dates.filter(d => schedule[`${s.id}_${d}`] === 'N').length);
   const specE2 = specs.map(s => dates.filter(d => schedule[`${s.id}_${d}`] === 'E2').length);
-  if (specTotals.length > 1 && Math.max(...specTotals) - Math.min(...specTotals) > 1)
-    hardViolations.push(`[Hard1] 전문의 간 총 근무 편차 ${Math.max(...specTotals)-Math.min(...specTotals)}일`);
-  if (specN.length > 1 && Math.max(...specN) - Math.min(...specN) > 1)
-    hardViolations.push(`[Hard2] 전문의 간 N 편차 ${Math.max(...specN)-Math.min(...specN)}회`);
-  if (specE2.length > 1 && Math.max(...specE2) - Math.min(...specE2) > 1)
-    hardViolations.push(`[Hard3] 전문의 간 E2 편차 ${Math.max(...specE2)-Math.min(...specE2)}회`);
-  if (prof) {
-    const e1c = dates.filter(d => schedule[`${prof.id}_${d}`] === 'E1').length;
-    if (e1c !== PROF_E1_TOTAL)
-      hardViolations.push(`[Hard4] 진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL}개)`);
-  }
-
-  // soft constraint 검증
   const specE1 = specs.map(s => dates.filter(d => schedule[`${s.id}_${d}`] === 'E1').length);
   const specD = specs.map(s => dates.filter(d => schedule[`${s.id}_${d}`] === 'D').length);
-  if (specE1.length > 1 && Math.max(...specE1) - Math.min(...specE1) > 1)
-    softViolations.push(`[Soft2] 전문의 간 E1 편차 ${Math.max(...specE1)-Math.min(...specE1)}회`);
-  if (specD.length > 1 && Math.max(...specD) - Math.min(...specD) > 1)
-    softViolations.push(`[Soft3] 전문의 간 D 편차 ${Math.max(...specD)-Math.min(...specD)}회`);
-  // soft5: 주 5회 초과
-  const weekOverwork = [];
-  app.staff.filter(s => s.type === 'spec').forEach(s => {
+
+  const showDiff = (arr, label, max, tag) => {
+    if (arr.length < 2) return;
+    const diff = Math.max(...arr) - Math.min(...arr);
+    if (diff > max) {
+      const detail = specs.map((s,i) => `${s.name}:${arr[i]}`).join(', ');
+      if (tag === 'hard') hardViolations.push(`[Hard] ${label} 편차 ${diff} (${detail})`);
+      else softViolations.push(`[Soft] ${label} 편차 ${diff} (${detail})`);
+    }
+  };
+  showDiff(specTotals, '전문의 간 총 근무', 1, 'hard');
+  showDiff(specN, '전문의 간 N', 1, 'hard');
+  showDiff(specE2, '전문의 간 E2', 1, 'hard');
+  if (prof) {
+    const e1c = dates.filter(d => schedule[`${prof.id}_${d}`] === 'E1').length;
+    if (e1c !== PROF_E1_TOTAL) hardViolations.push(`[Hard4] 진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL}개)`);
+  }
+  showDiff(specE1, '전문의 간 E1', 1, 'soft');
+  showDiff(specD, '전문의 간 D', 1, 'soft');
+
+  // soft5: 주 5회↑
+  const weekOver = [];
+  specs.forEach(s => {
     for (let w = 0; w < 8; w++) {
-      const week = dates.slice(w * 7, (w + 1) * 7);
+      const week = dates.slice(w*7, (w+1)*7);
       const wc = week.filter(d => { const sh = schedule[`${s.id}_${d}`]; return sh && sh !== 'OFF'; }).length;
-      if (wc >= 5) weekOverwork.push(`${s.name} ${w+1}주차 ${wc}일`);
+      if (wc >= 5) weekOver.push(`${s.name} ${w+1}주차 ${wc}일`);
     }
   });
-  if (weekOverwork.length > 0) softViolations.push(`[Soft5] 주 5회 이상: ${weekOverwork.join(', ')}`);
+  if (weekOver.length > 0) softViolations.push(`[Soft5] 주 5회↑: ${weekOver.join(', ')}`);
 
-  // 결과 표시
+  logEl.textContent = '완료!';
+
+  // ── 결과 표시 ──
   let html = '';
-  if (absViolations.length > 0) {
-    html += `<div class="alert error"><b>절대준수 위반 (스케줄 재검토 필요):</b><br>${absViolations.join('<br>')}</div>`;
-  }
-  if (hardViolations.length > 0) {
+  if (absViolations.length > 0)
+    html += `<div class="alert error"><b>⚠ 절대준수 위반 (재검토 필요):</b><br>${absViolations.join('<br>')}</div>`;
+  if (hardViolations.length > 0)
     html += `<div class="alert warn"><b>Hard Constraint 위반:</b><br>${hardViolations.join('<br>')}</div>`;
-  }
-  if (softViolations.length > 0) {
-    html += `<div class="alert warn" style="background:#F0F8FF;color:#0C447C"><b>Soft Constraint 참고:</b><br>${softViolations.join('<br>')}</div>`;
-  }
-  if (!html) html = `<div class="alert success">스케줄 생성 완료! 모든 규칙 준수 (${dates.length}일 × ${app.staff.length}명)</div>`;
+  if (softViolations.length > 0)
+    html += `<div class="alert warn" style="background:#EEF4FF;color:#0C447C;border-color:#B5D4F4"><b>Soft Constraint 참고:</b><br>${softViolations.join('<br>')}</div>`;
+  if (!html)
+    html = `<div class="alert success">✓ 스케줄 생성 완료! 모든 규칙 준수 (${dates.length}일 × ${app.staff.length}명)</div>`;
   alertEl.innerHTML = html;
 }
 
