@@ -17,7 +17,7 @@
   --radius:8px;--radius-lg:12px;
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg3);min-height:100vh}
-.container{max-width:1100px;margin:0 auto;padding:1rem}
+.container{max-width:1100px;margin:0 auto;padding:1rem;position:relative}
 .topbar{background:var(--bg);border-bottom:0.5px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50}
 .topbar h1{font-size:16px;font-weight:600;color:var(--text)}
 .topbar .subtitle{font-size:12px;color:var(--text2)}
@@ -84,8 +84,9 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
 .tag-block{background:#F4C0D1;color:#72243E}
 
 /* Pref Modal */
-.overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999}
-.modal{background:var(--bg);border-radius:var(--radius-lg);padding:1.5rem;width:340px;max-width:95vw;border:0.5px solid var(--border);max-height:90vh;overflow-y:auto;position:relative;z-index:10000}
+.modal-wrap{display:none;position:absolute;top:0;left:0;width:100%;min-height:100%;background:rgba(0,0,0,.45);z-index:9999;padding:60px 16px}
+.modal-wrap.open{display:block}
+.modal-box{background:var(--bg);border-radius:var(--radius-lg);padding:1.5rem;width:340px;max-width:100%;border:0.5px solid var(--border);margin:0 auto;position:relative}
 .modal h3{font-size:15px;font-weight:600;margin-bottom:12px}
 .shift-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
 .shift-btn{padding:9px;border:0.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;text-align:center;background:var(--bg2);transition:all .1s}
@@ -128,7 +129,7 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
 .row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 </style>
 </head>
-<body>
+<body style="position:relative;min-height:100vh">
 
 <div class="topbar">
   <div>
@@ -685,7 +686,7 @@ function showPrefModal(date){
       <button class="btn danger sm" onclick="clearPrefDate('${sn}','${date}')">전체 취소</button>
       <button class="btn ml-auto" onclick="closeOverlay()">닫기</button>
     </div>`;
-  document.getElementById('overlay').style.display='flex';
+  document.getElementById('overlay').classList.add('open');
 }
 
 function togglePrefItem(sn,date,key){
@@ -1799,21 +1800,24 @@ function exportCalCSV(){
 // 공통 오버레이
 // ================================================
 function openModal(html){
-  const ov=document.getElementById('overlay');
   document.getElementById('modal-body').innerHTML=html;
-  ov.style.display='flex';
+  document.getElementById('overlay').classList.add('open');
+  // 스크롤을 모달 위치로
+  document.getElementById('overlay').scrollIntoView({behavior:'smooth', block:'start'});
 }
 function closeOverlay(e){
   if(!e||e.target===document.getElementById('overlay')){
-    document.getElementById('overlay').style.display='none';
+    document.getElementById('overlay').classList.remove('open');
   }
 }
 function closeModal(){
-  document.getElementById('overlay').style.display='none';
+  document.getElementById('overlay').classList.remove('open');
 }
 </script>
-<div id="overlay" onclick="closeOverlay(event)" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center">
-  <div id="modal-body" onclick="event.stopPropagation()" style="background:#fff;border-radius:12px;padding:1.5rem;min-width:300px;max-width:420px;max-height:90vh;overflow-y:auto;position:relative;z-index:100000"></div>
+<div id="overlay" class="modal-wrap" onclick="closeOverlay(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div id="modal-body"></div>
+  </div>
 </div>
 </body>
 </html>
