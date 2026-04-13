@@ -1034,7 +1034,7 @@ function renderPrefsSummary(){
 // 여러 번 시도해서 constraint 위반이 가장 적은 결과 선택
 // ================================================================
 
-const MAX_TRIES = 30; // 최대 시도 횟수
+const MAX_TRIES = 500; // 최대 시도 횟수
 
 // 휴게 시간 체크
 function checkRest(ps, sh) {
@@ -1123,6 +1123,19 @@ function scoreSchedule(schedule, specs, dates) {
     }
   });
 
+  // 절대2: 희망 일정 미반영 페널티 (매우 높음)
+  const allStaff2 = [...specs];
+  allStaff2.forEach(s => {
+    dates.forEach(d => {
+      SHIFTS.forEach(sh => {
+        if (isWishedById(s.id, d, sh)) {
+          const actual = schedule[`${s.id}_${d}`];
+          if (actual !== sh) score += 10000; // 희망 미반영 시 큰 페널티
+        }
+      });
+    });
+  });
+
   return score;
 }
 
@@ -1157,8 +1170,10 @@ function tryGenerate(dates, prof, specs, profE1Set, shuffleSeed) {
         schedule[`${pid}_${date}`] = 'E1';
         cnt[pid].total++; cnt[pid].E1++; if (special) cnt[pid].hol++;
       } else if (!schedule[`${pid}_${date}`]) {
-        const wished = SHIFTS.find(sh => isWishedById(pid, date, sh) && !assigned[sh] && absOk(schedule, pid, date, sh, dates));
-        if (wished) {
+        // 절대2: 진료교수 희망 일정 강제 반영
+        const wishedShifts = SHIFTS.filter(sh => isWishedById(pid, date, sh) && !assigned[sh] && absOk(schedule, pid, date, sh, dates));
+        if (wishedShifts.length > 0) {
+          const wished = wishedShifts[0];
           assigned[wished] = pid;
           schedule[`${pid}_${date}`] = wished;
           cnt[pid].total++; cnt[pid][wished]++; if (special) cnt[pid].hol++;
@@ -1187,9 +1202,25 @@ function tryGenerate(dates, prof, specs, profE1Set, shuffleSeed) {
         cands = [...mustWork.filter(id => cands.includes(id)), ...cands.filter(id => !mustWork.includes(id))];
       }
 
-      // 절대2: 희망 우선
+      // 절대2: 희망 일정 강제 반영
+      // 이 날 이 shift를 희망한 직원이 있으면 반드시 그 직원 배정
       const wished = cands.filter(id => isWishedById(id, date, sh));
-      if (wished.length > 0) cands = [...wished, ...cands.filter(id => !wished.includes(id))];
+      if (wished.length > 0) {
+        cands = wished; // 희망 직원만 후보로 제한
+      } else {
+        // 이 shift를 희망하지 않았지만 다른 shift를 희망한 직원은 제외
+        // (다른 shift에서 희망이 반영될 수 있도록)
+        const wishOtherShift = cands.filter(id => {
+          return SHIFTS.some(s => s !== sh && isWishedById(id, date, s));
+        });
+        // 다른 shift 희망자가 있고 그 shift가 아직 미배정이면 후순위로
+        const otherShiftUnassigned = wishOtherShift.filter(id => {
+          return SHIFTS.some(s => s !== sh && isWishedById(id, date, s) && !assigned[s]);
+        });
+        if (otherShiftUnassigned.length > 0 && cands.filter(id => !otherShiftUnassigned.includes(id)).length > 0) {
+          cands = [...cands.filter(id => !otherShiftUnassigned.includes(id)), ...otherShiftUnassigned];
+        }
+      }
 
       // 정렬: hard1(총근무) → hard2(N) → hard3(E2) → soft2(E1) → soft3(D)
       cands.sort((a, b) => {
@@ -1296,11 +1327,21 @@ async function generateSchedule() {
   const absViolations = [], hardViolations = [], softViolations = [];
 
   app.staff.forEach(s => {
-    // 절대1
+    // 절대1: 불가 일정
     dates.forEach(d => {
       const sh = schedule[`${s.id}_${d}`];
       if (sh && sh !== 'OFF' && isBlockedById(s.id, d, sh))
         absViolations.push(`[절대1] ${s.name} ${d} 불가인데 ${sh} 배정`);
+    });
+    // 절대2: 희망 일정 미반영
+    dates.forEach(d => {
+      SHIFTS.forEach(wsh => {
+        if (isWishedById(s.id, d, wsh)) {
+          const actual = schedule[`${s.id}_${d}`];
+          if (actual !== wsh)
+            absViolations.push(`[절대2] ${s.name} ${d} ${wsh} 희망인데 ${actual||'OFF'} 배정`);
+        }
+      });
     });
     // 절대3,4
     for (let i = 1; i < dates.length; i++) {
