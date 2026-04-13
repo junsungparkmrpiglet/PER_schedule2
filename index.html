@@ -1071,12 +1071,25 @@ function weekWork(schedule, id, date, dates) {
   return cnt;
 }
 
-// 연속 off
+// 연속 off (배정된 날 기준, 불가 날짜 포함해서 카운트)
 function consecOff(schedule, id, dates, upToIdx) {
   let streak = 0;
   for (let i = upToIdx; i >= 0; i--) {
     const s = schedule[`${id}_${dates[i]}`];
     if (!s || s === 'OFF') streak++;
+    else break;
+  }
+  return streak;
+}
+
+// 앞으로 연속 불가/off 예정일 수 계산 (현재 날짜 이후)
+function futureBlockedStreak(id, dates, fromIdx) {
+  let streak = 0;
+  for (let i = fromIdx; i < dates.length; i++) {
+    const d = dates[i];
+    const allBlocked = isBlockedById(id, d, 'D') && isBlockedById(id, d, 'E1') &&
+                       isBlockedById(id, d, 'E2') && isBlockedById(id, d, 'N');
+    if (allBlocked) streak++;
     else break;
   }
   return streak;
@@ -1259,12 +1272,17 @@ function tryGenerate(dates, prof, specs, profE1Set, seed) {
     const remainShifts2 = SHIFTS.filter(sh => !assigned[sh]);
     for (const sh of remainShifts2) {
       // 연속 off 위험 직원 우선
-      const mustWork = order.filter(id =>
-        !Object.values(assigned).includes(id) &&
-        absOk(schedule, id, date, sh, dates) &&
-        weekWork(schedule, id, date, dates) < 5 &&
-        consecOff(schedule, id, dates, di-1) >= 13
-      );
+      // 조건1: 이미 13일 이상 연속 off
+      // 조건2: 앞으로 연속 불가일이 있어서 지금 안 넣으면 15일 초과 위험
+      const mustWork = order.filter(id => {
+        if (Object.values(assigned).includes(id)) return false;
+        if (!absOk(schedule, id, date, sh, dates)) return false;
+        if (weekWork(schedule, id, date, dates) >= 5) return false;
+        const pastOff = consecOff(schedule, id, dates, di-1);
+        const futureBlocked = futureBlockedStreak(id, dates, di+1);
+        // 현재 off + 앞으로 불가일 = 14이상이면 지금 배정 필수
+        return pastOff >= 13 || (pastOff + futureBlocked >= 14);
+      });
 
       let cands = order.filter(id =>
         !Object.values(assigned).includes(id) &&
