@@ -1048,6 +1048,24 @@ function absOk(schedule, id, date, shift, dates) {
     const ps = schedule[`${id}_${dates[idx-1]}`];
     if (!checkRest(ps, shift)) return false;
   }
+  // 다음날 희망 일정과 휴게 충돌 체크
+  if (idx < dates.length - 1) {
+    const nextDate = dates[idx + 1];
+    SHIFTS.forEach(nextSh => {
+      if (isWishedById(id, nextDate, nextSh)) {
+        if (!checkRest(shift, nextSh)) {
+          // 이 shift를 오늘 배정하면 내일 희망 shift를 못 받음 → 배정 불가
+          // (이미 return false를 하려면 forEach 대신 for문 사용)
+        }
+      }
+    });
+    // forEach로는 return 못하므로 for문으로 재작성
+    for (const nextSh of SHIFTS) {
+      if (isWishedById(id, nextDate, nextSh) && !checkRest(shift, nextSh)) {
+        return false; // 내일 희망을 위해 오늘 이 shift 배정 불가
+      }
+    }
+  }
   return true;
 }
 
