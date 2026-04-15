@@ -1229,30 +1229,43 @@ async function generateSchedule() {
       }
     });
 
-    // 나머지 shift에 전문의 배정
-    SHIFTS.filter(sh => !assigned[sh]).forEach(sh => {
-      // mustWork: 연속 off 위험
-      const mustWork = specIds.filter(id => {
-        if (Object.values(assigned).includes(id)) return false;
-        if (!absOk(schedule, id, date, sh, dates)) return false;
-        if (weekWork(schedule, id, date, dates) >= 5) return false;
-        const pastOff = consecOff(schedule, id, dates, di-1);
-        const futureBlocked = futureBlockedStreak(id, dates, di+1);
-        return pastOff >= 13 || (pastOff + futureBlocked >= 13);
-      });
+    // ── mustWork 직원 먼저 처리 (연속 off 위험) ──
+    // 모든 shift에 걸쳐 mustWork 직원을 먼저 배정
+    specIds.forEach(id => {
+      if (Object.values(assigned).includes(id)) return;
+      const pastOff = consecOff(schedule, id, dates, di-1);
+      const futureBlocked = futureBlockedStreak(id, dates, di+1);
+      const isMust = pastOff >= 13 || (pastOff + futureBlocked >= 13);
+      if (!isMust) return;
+      if (weekWork(schedule, id, date, dates) >= 5) return;
 
+      // 배정 가능한 shift 중 우선순위: 희망 > hard 균등
+      const availShifts = SHIFTS.filter(sh =>
+        !assigned[sh] && absOk(schedule, id, date, sh, dates)
+      );
+      if (availShifts.length === 0) return;
+
+      // 희망 shift 먼저
+      const wishedSh = availShifts.find(sh => isWishedById(id, date, sh));
+      const chosenSh = wishedSh || availShifts.sort((a,b) => {
+        const dt = cnt[id][a] - cnt[id][b]; if (dt) return dt;
+        return 0;
+      })[0];
+
+      assigned[chosenSh] = id;
+      schedule[`${id}_${date}`] = chosenSh;
+      cnt[id].total++; cnt[id][chosenSh]++; if (special) cnt[id].hol++;
+    });
+
+    // ── 나머지 shift에 일반 전문의 배정 ──
+    SHIFTS.filter(sh => !assigned[sh]).forEach(sh => {
       let cands = specIds.filter(id =>
         !Object.values(assigned).includes(id) &&
         absOk(schedule, id, date, sh, dates) &&
         weekWork(schedule, id, date, dates) < 5
       );
 
-      if (mustWork.length > 0)
-        cands = [...mustWork, ...cands.filter(id => !mustWork.includes(id))];
-
       cands.sort((a, b) => {
-        const aM = mustWork.includes(a), bM = mustWork.includes(b);
-        if (aM !== bM) return aM ? -1 : 1;
         const dt = cnt[a].total - cnt[b].total; if (dt) return dt;
         if (sh === 'N') { const dn = cnt[a].N - cnt[b].N; if (dn) return dn; }
         if (sh === 'E2') { const de = cnt[a].E2 - cnt[b].E2; if (de) return de; }
