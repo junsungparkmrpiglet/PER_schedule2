@@ -1184,21 +1184,30 @@ async function generateSchedule() {
     }
 
     // ── 전문의 배정 ──
-    const remainShifts = SHIFTS.filter(sh => !assigned[sh]);
-
-    // 절대2: 희망 직원 먼저 확정
+    // 절대2: 희망 직원을 먼저 확정 (충돌 시 경고)
+    // 같은 shift를 여러 명이 희망하면 → 불가/휴게 문제 없는 첫 번째 우선
+    // 먼저 희망 배정 목록을 전부 수집
+    const wishMap = {}; // shift → [id, ...]
+    SHIFTS.forEach(sh => { wishMap[sh] = []; });
     specIds.forEach(id => {
-      const wishedShift = SHIFTS.find(sh =>
-        isWishedById(id, date, sh) &&
-        !assigned[sh] &&
-        !Object.values(assigned).includes(id) &&
-        absOk(schedule, id, date, sh, dates) &&
-        weekWork(schedule, id, date, dates) < 5
-      );
-      if (wishedShift) {
-        assigned[wishedShift] = id;
-        schedule[`${id}_${date}`] = wishedShift;
-        cnt[id].total++; cnt[id][wishedShift]++; if (special) cnt[id].hol++;
+      SHIFTS.forEach(sh => {
+        if (isWishedById(id, date, sh) &&
+            !isBlockedById(id, date, sh) &&
+            absOk(schedule, id, date, sh, dates) &&
+            weekWork(schedule, id, date, dates) < 5) {
+          wishMap[sh].push(id);
+        }
+      });
+    });
+    // shift별로 희망자 배정 (1명만 가능, 충돌 시 첫 번째)
+    SHIFTS.forEach(sh => {
+      if (wishMap[sh].length > 0 && !assigned[sh]) {
+        const id = wishMap[sh].find(id => !Object.values(assigned).includes(id));
+        if (id) {
+          assigned[sh] = id;
+          schedule[`${id}_${date}`] = sh;
+          cnt[id].total++; cnt[id][sh]++; if (special) cnt[id].hol++;
+        }
       }
     });
 
@@ -1291,9 +1300,11 @@ async function generateSchedule() {
           if (isBlockedById(s1.id, date, sh2)) continue;
           if (isBlockedById(s2.id, date, sh1)) continue;
 
-          // 절대2: swap 후 희망 훼손 체크
-          if (isWishedById(s1.id, date, sh1) && !isWishedById(s1.id, date, sh2)) continue;
-          if (isWishedById(s2.id, date, sh2) && !isWishedById(s2.id, date, sh1)) continue;
+          // 절대2: 어느 쪽이든 희망이 있으면 swap 불가 (희망은 절대 보호)
+          if (isWishedById(s1.id, date, sh1)) continue; // s1이 이 shift 희망 중
+          if (isWishedById(s2.id, date, sh2)) continue; // s2가 이 shift 희망 중
+          if (isWishedById(s1.id, date, sh2)) continue; // s1이 상대 shift 희망하지 않음
+          if (isWishedById(s2.id, date, sh1)) continue; // s2가 상대 shift 희망하지 않음
 
           // 절대3,4: swap 후 휴게 체크 (전날/다음날)
           if (di > 0) {
@@ -1309,12 +1320,6 @@ async function generateSchedule() {
             if (ns2 && ns2 !== 'OFF' && !checkRest(sh1, ns2)) continue;
           }
 
-          // swap이 Hard constraint를 개선하는지 점수 비교
-          const beforeScore =
-            Math.abs(curCnt[s1.id].total - curCnt[s2.id].total) * 100 +
-            (sh1==='N'||sh2==='N' ? Math.abs(curCnt[s1.id].N - curCnt[s2.id].N) * 80 : 0) +
-            (sh1==='E2'||sh2==='E2' ? Math.abs(curCnt[s1.id].E2 - curCnt[s2.id].E2) * 60 : 0);
-
           // swap 후 가상 카운트
           const tc1 = {...curCnt[s1.id]}, tc2 = {...curCnt[s2.id]};
           if (sh1 !== 'OFF') { tc1.total--; tc1[sh1]--; }
@@ -1322,13 +1327,29 @@ async function generateSchedule() {
           if (sh2 !== 'OFF') { tc2.total--; tc2[sh2]--; }
           if (sh1 !== 'OFF') { tc2.total++; tc2[sh1]++; }
 
+          // 전체 편차 기반 점수 계산
+          const allCnt = {...curCnt, [s1.id]: tc1, [s2.id]: tc2};
+          const tots  = specIds.map(id => allCnt[id].total);
+          const ns    = specIds.map(id => allCnt[id].N);
+          const e2s   = specIds.map(id => allCnt[id].E2);
+          const e1s   = specIds.map(id => allCnt[id].E1);
+          const ds    = specIds.map(id => allCnt[id].D);
+          const diff  = arr => Math.max(...arr) - Math.min(...arr);
+
           const afterScore =
-            Math.abs(tc1.total - tc2.total) * 100 +
-            (sh1==='N'||sh2==='N' ? Math.abs(tc1.N - tc2.N) * 80 : 0) +
-            (sh1==='E2'||sh2==='E2' ? Math.abs(tc1.E2 - tc2.E2) * 60 : 0);
+            diff(tots) * 1000 + diff(ns) * 900 + diff(e2s) * 700 +
+            diff(e1s) * 400 + diff(ds) * 200;
+
+          const oldTots = specIds.map(id => curCnt[id].total);
+          const oldNs   = specIds.map(id => curCnt[id].N);
+          const oldE2s  = specIds.map(id => curCnt[id].E2);
+          const oldE1s  = specIds.map(id => curCnt[id].E1);
+          const oldDs   = specIds.map(id => curCnt[id].D);
+          const beforeScore =
+            diff(oldTots) * 1000 + diff(oldNs) * 900 + diff(oldE2s) * 700 +
+            diff(oldE1s) * 400 + diff(oldDs) * 200;
 
           if (afterScore < beforeScore) {
-            // swap 실행
             schedule[`${s1.id}_${date}`] = sh2;
             schedule[`${s2.id}_${date}`] = sh1;
             curCnt[s1.id] = tc1;
