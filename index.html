@@ -1030,8 +1030,9 @@ function renderPrefsSummary(){
 // 스케줄 생성
 // ================================================
 // ================================================================
-// 스케줄링 엔진 v8 - 백트래킹 + 제약 전파
-// 절대준수 100% 보장, Hard/Soft 최적화
+// 스케줄링 엔진 v9
+// 핵심: 1단계에서 사람별 목표 근무수를 먼저 배분하고
+//       그 목표에 맞게 날짜를 배정
 // ================================================================
 
 function checkRest(ps, sh) {
@@ -1041,7 +1042,6 @@ function checkRest(ps, sh) {
   return rest >= SHIFT_REST[ps];
 }
 
-// 절대준수: 불가 + 휴게 + 다음날 희망 보호
 function absOk(schedule, id, date, shift, dates) {
   const idx = dates.indexOf(date);
   if (isBlockedById(id, date, shift)) return false;
@@ -1087,19 +1087,6 @@ function futureBlockedStreak(id, dates, fromIdx) {
   return streak;
 }
 
-// 전체 스케줄 점수 (낮을수록 좋음)
-function globalScore(schedule, specs, dates) {
-  const get = (s, sh) => dates.filter(d => schedule[`${s.id}_${d}`] === sh).length;
-  const getTot = s => dates.filter(d => { const sh=schedule[`${s.id}_${d}`]; return sh&&sh!=='OFF'; }).length;
-  const diff = arr => arr.length<2 ? 0 : Math.max(...arr)-Math.min(...arr);
-  const tots = specs.map(getTot);
-  const ns   = specs.map(s=>get(s,'N'));
-  const e2s  = specs.map(s=>get(s,'E2'));
-  const e1s  = specs.map(s=>get(s,'E1'));
-  const ds   = specs.map(s=>get(s,'D'));
-  return diff(tots)*10000 + diff(ns)*8000 + diff(e2s)*700 + diff(e1s)*400 + diff(ds)*200;
-}
-
 async function generateSchedule() {
   const logEl = document.getElementById('gen-log');
   const pw = document.getElementById('gen-pw'), pb = document.getElementById('gen-pb');
@@ -1113,7 +1100,7 @@ async function generateSchedule() {
   const allStaff = prof ? [prof, ...specs] : [...specs];
 
   pb.style.width = '5%';
-  logEl.textContent = '진료교수 E1 일정 계획 중...';
+  logEl.textContent = '진료교수 E1 계획 중...';
   await new Promise(r => setTimeout(r, 30));
 
   // ── 진료교수 E1 계획 ──
@@ -1132,11 +1119,43 @@ async function generateSchedule() {
     if (profE1Set.size > PROF_E1_TOTAL) {
       const fixed = [...profE1Set].filter(d => PROF_E1_DAYS.includes(dowMon(d)));
       const extra = [...profE1Set].filter(d => !PROF_E1_DAYS.includes(dowMon(d)));
-      profE1Set = new Set([...fixed, ...extra.slice(0, Math.max(0, PROF_E1_TOTAL-fixed.length))]);
+      profE1Set = new Set([...fixed, ...extra.slice(0, Math.max(0, PROF_E1_TOTAL - fixed.length))]);
     }
   }
 
-  // ── 그리디 1차 배정 (절대준수 100% 보장) ──
+  // ── 전문의별 가용 날짜 계산 ──
+  // 각 전문의가 배정 가능한 날짜 수를 먼저 파악
+  pb.style.width = '10%';
+  logEl.textContent = '전문의별 가용일 분석 중...';
+  await new Promise(r => setTimeout(r, 30));
+
+  // 총 배정 필요 수: 56일 × 4 shift = 224개 (진료교수 몫 제외)
+  // 진료교수는 E1 24개 + 희망일정 배정
+  const profDays = profE1Set.size; // 진료교수 최소 배정일
+  const specTotalNeeded = dates.length * SHIFTS.length - profDays;
+  const avgPerSpec = specTotalNeeded / specIds.length;
+
+  // 각 전문의의 가용 날짜 수 (block_all 제외)
+  const specAvail = {};
+  specIds.forEach(id => {
+    specAvail[id] = dates.filter(d => !SHIFTS.every(sh => isBlockedById(id, d, sh))).length;
+  });
+
+  // 목표 근무수: 모두 동일하게 (총 배정수 / 전문의 수)
+  // 불가일정이 많은 사람도 같은 목표를 향해 가용일에 더 촘촘하게 배정
+  const baseTarget = Math.floor(specTotalNeeded / specIds.length);
+  const remainder = Math.round(specTotalNeeded) % specIds.length;
+  const specTarget = {};
+  // 가용일이 적은 사람에게 remainder를 먼저 주면 목표가 더 높아져서 역효과
+  // 단순하게 모두 baseTarget 또는 baseTarget+1
+  specIds.forEach((id, i) => {
+    specTarget[id] = baseTarget + (i < remainder ? 1 : 0);
+  });
+
+  console.log('목표 근무수 (균등):', baseTarget, '~', baseTarget+1);
+  console.log('가용일:', specIds.map(id => `${specs.find(s=>s.id===id).name}:${specAvail[id]}`).join(', '));
+
+  // ── 그리디 배정 ──
   const schedule = {};
   const cnt = {};
   allStaff.forEach(s => { cnt[s.id] = {total:0,D:0,E1:0,E2:0,N:0,hol:0}; });
@@ -1147,12 +1166,12 @@ async function generateSchedule() {
     const assigned = {D:null,E1:null,E2:null,N:null};
 
     if (di % 7 === 0) {
-      pb.style.width = (5 + Math.round((di/dates.length)*55)) + '%';
-      logEl.textContent = `1단계: 절대준수 배정 중... ${date} (${di+1}/${dates.length})`;
+      pb.style.width = (10 + Math.round((di/dates.length)*55)) + '%';
+      logEl.textContent = `1단계: 배정 중... ${date} (${di+1}/${dates.length})`;
       await new Promise(r => setTimeout(r, 0));
     }
 
-    // 진료교수 배정
+    // ── 진료교수 ──
     if (prof) {
       const pid = prof.id;
       let profShift = null;
@@ -1163,7 +1182,6 @@ async function generateSchedule() {
       if (profWished) profShift = profWished;
       else if (profE1Set.has(date) && absOk(schedule, pid, date, 'E1', dates) &&
                weekWork(schedule, pid, date, dates) < 5) profShift = 'E1';
-
       if (profShift) {
         assigned[profShift] = pid;
         schedule[`${pid}_${date}`] = profShift;
@@ -1171,7 +1189,7 @@ async function generateSchedule() {
       }
     }
 
-    // 희망 직원 먼저 확정
+    // ── 희망 직원 먼저 확정 ──
     const wishMap = {};
     SHIFTS.forEach(sh => { wishMap[sh] = []; });
     specIds.forEach(id => {
@@ -1193,68 +1211,61 @@ async function generateSchedule() {
       }
     });
 
-    // mustWork 먼저 처리 (연속off 위험 + 총근무 deficit 큰 사람)
-    // 목표 근무수 계산 (현재까지 진행 기준)
-    const daysLeft = dates.length - di;
-    const targetTotal = Math.round(dates.length * SHIFTS.length / specIds.length);
-
-    // mustWork 우선순위: 연속off위험 > deficit 큰 순
-    const mustWorkList = specIds
-      .filter(id => {
-        if (Object.values(assigned).includes(id)) return false;
-        if (weekWork(schedule, id, date, dates) >= 5) return false;
-        if (!SHIFTS.some(sh => !assigned[sh] && absOk(schedule, id, date, sh, dates))) return false;
-        const pastOff = consecOff(schedule, id, dates, di-1);
-        const futureBlocked = futureBlockedStreak(id, dates, di+1);
-        const isOffDanger = pastOff >= 13 || (pastOff + futureBlocked >= 13);
-        // deficit: 목표 근무수 - 현재 근무수, 남은 날로 따라잡기 어려운 경우
-        const deficit = targetTotal - cnt[id].total;
-        const slotsNeeded = deficit; // 앞으로 이만큼 더 배정 필요
-        const isDeficit = slotsNeeded > daysLeft * 0.5; // 남은 날의 50% 이상 근무해야 하면 우선
-        return isOffDanger || isDeficit;
-      })
-      .sort((a, b) => {
-        // 연속off 위험 먼저
-        const aOff = consecOff(schedule, a, dates, di-1) + futureBlockedStreak(a, dates, di+1);
-        const bOff = consecOff(schedule, b, dates, di-1) + futureBlockedStreak(b, dates, di+1);
-        if (aOff !== bOff) return bOff - aOff;
-        // deficit 큰 사람 먼저
-        return (cnt[b].total - cnt[a].total);
-      });
-
-    mustWorkList.forEach(id => {
-      if (Object.values(assigned).includes(id)) return;
-      const availShifts = SHIFTS.filter(sh =>
-        !assigned[sh] && absOk(schedule, id, date, sh, dates)
-      );
-      if (availShifts.length === 0) return;
-      const wishedSh = availShifts.find(sh => isWishedById(id, date, sh));
-      const chosenSh = wishedSh || availShifts.sort((a,b) => cnt[id][a]-cnt[id][b])[0];
-      assigned[chosenSh] = id;
-      schedule[`${id}_${date}`] = chosenSh;
-      cnt[id].total++; cnt[id][chosenSh]++; if(special) cnt[id].hol++;
+    // ── 연속 off 위험 직원 (mustWork) ──
+    const mustWorkIds = specIds.filter(id => {
+      if (Object.values(assigned).includes(id)) return false;
+      if (weekWork(schedule, id, date, dates) >= 5) return false;
+      if (!SHIFTS.some(sh => !assigned[sh] && absOk(schedule, id, date, sh, dates))) return false;
+      const pastOff = consecOff(schedule, id, dates, di-1);
+      const futureBlocked = futureBlockedStreak(id, dates, di+1);
+      return pastOff >= 13 || (pastOff + futureBlocked >= 13);
     });
 
-    // 나머지 shift 배정
+    mustWorkIds.forEach(id => {
+      if (Object.values(assigned).includes(id)) return;
+      const avail = SHIFTS.filter(sh => !assigned[sh] && absOk(schedule, id, date, sh, dates));
+      if (avail.length === 0) return;
+      const wishedSh = avail.find(sh => isWishedById(id, date, sh));
+      const sh = wishedSh || avail[0];
+      assigned[sh] = id;
+      schedule[`${id}_${date}`] = sh;
+      cnt[id].total++; cnt[id][sh]++; if(special) cnt[id].hol++;
+    });
+
+    // ── 나머지 shift 배정 ──
+    // 핵심: 목표 대비 남은 필요량을 기준으로 우선순위 결정
     SHIFTS.filter(sh => !assigned[sh]).forEach(sh => {
       let cands = specIds.filter(id =>
         !Object.values(assigned).includes(id) &&
         absOk(schedule, id, date, sh, dates) &&
         weekWork(schedule, id, date, dates) < 5
       );
-      // 목표 근무수: 전체 근무 / 전문의 수 (불가일정 감안)
-      const targetWork = Math.round(dates.length * SHIFTS.length / specIds.length);
-      cands.sort((a,b) => {
-        // 목표 대비 부족한 정도가 클수록 우선
-        const aDeficit = targetWork - cnt[a].total;
-        const bDeficit = targetWork - cnt[b].total;
-        if (aDeficit !== bDeficit) return bDeficit - aDeficit; // 부족한 사람 먼저
-        if(sh==='N'){const dn=cnt[a].N-cnt[b].N;if(dn)return dn;}
-        if(sh==='E2'){const de=cnt[a].E2-cnt[b].E2;if(de)return de;}
-        if(sh==='E1'){const de1=cnt[a].E1-cnt[b].E1;if(de1)return de1;}
-        if(sh==='D'){const dd=cnt[a].D-cnt[b].D;if(dd)return dd;}
+
+      const daysLeft = dates.length - di;
+      cands.sort((a, b) => {
+        // 핵심: 목표까지 남은 필요량을 앞으로 가용한 날로 나눈 비율
+        // 가용일이 적은 사람은 이 비율이 높아서 더 우선 배정됨
+        const aRemain = specTarget[a] - cnt[a].total;
+        const bRemain = specTarget[b] - cnt[b].total;
+        // 앞으로 이 사람이 배정 가능한 날 수 추정 (불가일 제외)
+        const aAvailLeft = dates.slice(di).filter(d =>
+          !SHIFTS.every(s => isBlockedById(a, d, s))
+        ).length;
+        const bAvailLeft = dates.slice(di).filter(d =>
+          !SHIFTS.every(s => isBlockedById(b, d, s))
+        ).length;
+        // 남은 가용일 중 몇 %를 근무해야 하는지 (높을수록 우선)
+        const aUrgency = aRemain / Math.max(1, aAvailLeft);
+        const bUrgency = bRemain / Math.max(1, bAvailLeft);
+        if (Math.abs(aUrgency - bUrgency) > 0.05) return bUrgency - aUrgency;
+        // 같으면 N/E2/E1/D 균등
+        if (sh==='N') { const dn=cnt[a].N-cnt[b].N; if(dn) return dn; }
+        if (sh==='E2') { const de=cnt[a].E2-cnt[b].E2; if(de) return de; }
+        if (sh==='E1') { const de1=cnt[a].E1-cnt[b].E1; if(de1) return de1; }
+        if (sh==='D') { const dd=cnt[a].D-cnt[b].D; if(dd) return dd; }
         return 0;
       });
+
       if (cands.length > 0) {
         const chosen = cands[0];
         assigned[sh] = chosen;
@@ -1266,12 +1277,11 @@ async function generateSchedule() {
     allStaff.forEach(s => { if(!schedule[`${s.id}_${date}`]) schedule[`${s.id}_${date}`]='OFF'; });
   }
 
-  // ── 2단계: Swap 최적화 (절대준수 보호하며 Hard/Soft 균등화) ──
-  pb.style.width = '65%';
+  // ── 2단계: Swap 최적화 ──
+  pb.style.width = '68%';
   logEl.textContent = '2단계: Swap 최적화 중...';
   await new Promise(r => setTimeout(r, 30));
 
-  // 현재 카운트 재계산
   specs.forEach(s => {
     cnt[s.id] = {total:0,D:0,E1:0,E2:0,N:0,hol:0};
     dates.forEach(d => {
@@ -1291,63 +1301,42 @@ async function generateSchedule() {
 
     for (let di = 0; di < dates.length; di++) {
       const date = dates[di];
-
       for (let si1 = 0; si1 < specs.length; si1++) {
         for (let si2 = si1+1; si2 < specs.length; si2++) {
           const s1=specs[si1], s2=specs[si2];
           const sh1=schedule[`${s1.id}_${date}`], sh2=schedule[`${s2.id}_${date}`];
-
           if (!sh1||!sh2||sh1===sh2||sh1==='OFF'||sh2==='OFF') continue;
-
-          // 절대1: 불가
           if (isBlockedById(s1.id,date,sh2)||isBlockedById(s2.id,date,sh1)) continue;
-          // 절대2: 희망 보호 (희망이 있는 날은 swap 불가)
           if (isWishedById(s1.id,date,sh1)||isWishedById(s2.id,date,sh2)) continue;
           if (isWishedById(s1.id,date,sh2)||isWishedById(s2.id,date,sh1)) continue;
-          // 절대3,4: 전날 휴게
           if (di > 0) {
             const ps1=schedule[`${s1.id}_${dates[di-1]}`], ps2=schedule[`${s2.id}_${dates[di-1]}`];
             if(!checkRest(ps1,sh2)||!checkRest(ps2,sh1)) continue;
           }
-          // 절대3,4: 다음날 휴게
           if (di < dates.length-1) {
             const ns1=schedule[`${s1.id}_${dates[di+1]}`], ns2=schedule[`${s2.id}_${dates[di+1]}`];
             if(ns1&&ns1!=='OFF'&&!checkRest(sh2,ns1)) continue;
             if(ns2&&ns2!=='OFF'&&!checkRest(sh1,ns2)) continue;
           }
-          // 절대2: 다음날 희망 보호
-          if (di < dates.length-1) {
-            const nextDate = dates[di+1];
-            for (const nsh of SHIFTS) {
-              if (isWishedById(s1.id,nextDate,nsh)&&!checkRest(sh2,nsh)) { continue; }
-              if (isWishedById(s2.id,nextDate,nsh)&&!checkRest(sh1,nsh)) { continue; }
-            }
-          }
 
-          // 점수 비교
           const tc1={...cnt[s1.id]}, tc2={...cnt[s2.id]};
-          tc1.total+=(sh2!=='OFF'?1:0)-(sh1!=='OFF'?1:0);
           tc1[sh1]--; tc1[sh2]++;
-          tc2.total+=(sh1!=='OFF'?1:0)-(sh2!=='OFF'?1:0);
           tc2[sh2]--; tc2[sh1]++;
 
-          const allCnt = Object.fromEntries(specIds.map(id=>[id,cnt[id]]));
-          allCnt[s1.id]=tc1; allCnt[s2.id]=tc2;
-
+          const allCnt={...Object.fromEntries(specIds.map(id=>[id,cnt[id]])), [s1.id]:tc1, [s2.id]:tc2};
           const tots=specIds.map(id=>allCnt[id].total);
           const ns=specIds.map(id=>allCnt[id].N);
           const e2s=specIds.map(id=>allCnt[id].E2);
           const e1s=specIds.map(id=>allCnt[id].E1);
           const ds=specIds.map(id=>allCnt[id].D);
-
-          const after = diff(tots)*10000+diff(ns)*8000+diff(e2s)*700+diff(e1s)*400+diff(ds)*200;
+          const after=diff(tots)*10000+diff(ns)*8000+diff(e2s)*700+diff(e1s)*400+diff(ds)*200;
 
           const oldTots=specIds.map(id=>cnt[id].total);
           const oldNs=specIds.map(id=>cnt[id].N);
           const oldE2s=specIds.map(id=>cnt[id].E2);
           const oldE1s=specIds.map(id=>cnt[id].E1);
           const oldDs=specIds.map(id=>cnt[id].D);
-          const before = diff(oldTots)*10000+diff(oldNs)*8000+diff(oldE2s)*700+diff(oldE1s)*400+diff(oldDs)*200;
+          const before=diff(oldTots)*10000+diff(oldNs)*8000+diff(oldE2s)*700+diff(oldE1s)*400+diff(oldDs)*200;
 
           if (after < before) {
             schedule[`${s1.id}_${date}`]=sh2;
@@ -1360,49 +1349,41 @@ async function generateSchedule() {
     }
 
     if (iter % 100 === 0) {
-      pb.style.width = (65 + Math.round((iter/MAX_ITER)*25)) + '%';
-      logEl.textContent = `2단계: Swap 최적화 중... (${iter}/${MAX_ITER}회)`;
+      pb.style.width = (68 + Math.round((iter/MAX_ITER)*22)) + '%';
+      logEl.textContent = `2단계: Swap ${iter}/${MAX_ITER}회`;
       await new Promise(r => setTimeout(r, 0));
     }
   }
 
-  // ── 3단계: N/총근무 편차가 크면 강제 재배정 ──
+  // ── 3단계: N 편차 강제 보정 ──
   pb.style.width = '92%';
-  logEl.textContent = '3단계: 균등화 보정 중...';
+  logEl.textContent = '3단계: N 편차 보정 중...';
   await new Promise(r => setTimeout(r, 30));
 
-  // N이 가장 많은 사람 ↔ 가장 적은 사람 간 N shift 날짜 찾아서 강제 swap
-  for (let pass = 0; pass < 50; pass++) {
-    const ns = specs.map(s=>({s, n:dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length}));
-    ns.sort((a,b)=>b.n-a.n);
-    const maxS=ns[0], minS=ns[ns.length-1];
+  for (let pass = 0; pass < 100; pass++) {
+    const nArr = specs.map(s=>({s, n:dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length}));
+    nArr.sort((a,b)=>b.n-a.n);
+    const maxS=nArr[0], minS=nArr[nArr.length-1];
     if (maxS.n - minS.n <= 1) break;
 
-    // maxS의 N 날짜 중 minS의 해당 날 shift와 swap 가능한 날 찾기
     let swapped = false;
     for (const date of dates) {
       if (schedule[`${maxS.s.id}_${date}`] !== 'N') continue;
       const minSh = schedule[`${minS.s.id}_${date}`];
-      if (!minSh || minSh === 'OFF' || minSh === 'N') continue;
-
-      // 절대준수 체크
+      if (!minSh||minSh==='OFF'||minSh==='N') continue;
       if (isBlockedById(maxS.s.id,date,minSh)||isBlockedById(minS.s.id,date,'N')) continue;
       if (isWishedById(maxS.s.id,date,'N')||isWishedById(minS.s.id,date,minSh)) continue;
       if (isWishedById(maxS.s.id,date,minSh)||isWishedById(minS.s.id,date,'N')) continue;
-
-      const di = dates.indexOf(date);
-      if (di > 0) {
-        const ps1=schedule[`${maxS.s.id}_${dates[di-1]}`];
-        const ps2=schedule[`${minS.s.id}_${dates[di-1]}`];
+      const di=dates.indexOf(date);
+      if (di>0) {
+        const ps1=schedule[`${maxS.s.id}_${dates[di-1]}`], ps2=schedule[`${minS.s.id}_${dates[di-1]}`];
         if(!checkRest(ps1,minSh)||!checkRest(ps2,'N')) continue;
       }
-      if (di < dates.length-1) {
-        const ns1=schedule[`${maxS.s.id}_${dates[di+1]}`];
-        const ns2=schedule[`${minS.s.id}_${dates[di+1]}`];
+      if (di<dates.length-1) {
+        const ns1=schedule[`${maxS.s.id}_${dates[di+1]}`], ns2=schedule[`${minS.s.id}_${dates[di+1]}`];
         if(ns1&&ns1!=='OFF'&&!checkRest(minSh,ns1)) continue;
         if(ns2&&ns2!=='OFF'&&!checkRest('N',ns2)) continue;
       }
-
       schedule[`${maxS.s.id}_${date}`]=minSh;
       schedule[`${minS.s.id}_${date}`]='N';
       cnt[maxS.s.id].N--; cnt[maxS.s.id][minSh]++;
@@ -1410,67 +1391,6 @@ async function generateSchedule() {
       swapped=true; break;
     }
     if (!swapped) break;
-  }
-
-  // 3단계-B: 총근무 편차 강제 보정
-  // 근무 많은 사람 ↔ 근무 적은 사람: 같은 날 OFF↔근무 있는 경우 3자 교환
-  for (let pass = 0; pass < 100; pass++) {
-    const tots = specs.map(s=>({s, t:cnt[s.id].total}));
-    tots.sort((a,b)=>b.t-a.t);
-    const maxS=tots[0], minS=tots[tots.length-1];
-    if (maxS.t - minS.t <= 1) break;
-
-    // minS가 OFF이고 maxS가 근무인 날 찾아서
-    // maxS 근무를 다른 사람(중간 수준)에게 넘기고, minS에 그 날 다른 shift 배정
-    let fixed = false;
-    for (const date of dates) {
-      const shMax = schedule[`${maxS.s.id}_${date}`];
-      const shMin = schedule[`${minS.s.id}_${date}`];
-      if (!shMax || shMax === 'OFF') continue;
-      if (shMin && shMin !== 'OFF') continue; // minS 이미 근무 중
-
-      // minS가 이 날 배정 가능한 shift 찾기 (maxS shift 제외)
-      const availForMin = SHIFTS.filter(sh =>
-        sh !== shMax &&
-        !schedule || true // 이미 배정된 shift 확인 필요
-      );
-
-      // 더 간단한 방법: maxS↔minS swap (maxS OFF, minS 해당shift)
-      // 단 이러면 총근무가 같아지므로 의미 없음
-      // 실제로는: minS를 OFF→근무로, maxS를 근무→OFF로 바꾸는 게 필요
-      // 그러려면 해당 날 그 shift에 이미 배정된 사람이 없어야 함
-      // → maxS의 shift가 이미 다른 사람도 하고 있으면 maxS만 OFF로 바꿀 수 있음
-      // (하루에 각 shift는 1명이므로 불가)
-
-      // 유일한 방법: maxS와 minS의 전체 스케줄 교환
-      // 단, 절대준수 위반 없어야 함 (불가/희망 모두 체크)
-      const canSwapAll = dates.every(d => {
-        const s1sh = schedule[`${maxS.s.id}_${d}`];
-        const s2sh = schedule[`${minS.s.id}_${d}`];
-        if (s1sh && s1sh !== 'OFF' && isBlockedById(minS.s.id, d, s1sh)) return false;
-        if (s2sh && s2sh !== 'OFF' && isBlockedById(maxS.s.id, d, s2sh)) return false;
-        if (isWishedById(maxS.s.id, d, s1sh) && s2sh !== s1sh) return false;
-        if (isWishedById(minS.s.id, d, s2sh) && s1sh !== s2sh) return false;
-        return true;
-      });
-
-      if (canSwapAll) {
-        // 전체 스케줄 교환
-        dates.forEach(d => {
-          const t = schedule[`${maxS.s.id}_${d}`];
-          schedule[`${maxS.s.id}_${d}`] = schedule[`${minS.s.id}_${d}`];
-          schedule[`${minS.s.id}_${d}`] = t;
-        });
-        // 카운트 교환
-        const tc = cnt[maxS.s.id];
-        cnt[maxS.s.id] = cnt[minS.s.id];
-        cnt[minS.s.id] = tc;
-        fixed = true;
-        break;
-      }
-      break;
-    }
-    if (!fixed) break;
   }
 
   app.schedule = schedule;
@@ -1540,18 +1460,17 @@ async function generateSchedule() {
 
   let html='';
   if(absViolations.length>0)
-    html+=`<div class="alert error"><b>⚠ 절대준수 위반:</b><br>${absViolations.join('<br>')}</div>`;
+    html+=`<div class="alert error"><b>절대준수 위반:</b><br>${absViolations.join('<br>')}</div>`;
   if(hardViolations.length>0)
     html+=`<div class="alert warn" style="margin-top:8px"><b>Hard 위반:</b><br>${hardViolations.join('<br>')}</div>`;
   if(softViolations.length>0)
     html+=`<div class="alert warn" style="background:#EEF4FF;color:#0C447C;border-color:#B5D4F4;margin-top:8px"><b>Soft 참고:</b><br>${softViolations.join('<br>')}</div>`;
   if(!html)
-    html=`<div class="alert success">✓ 모든 규칙 완전 준수! (Swap ${iter}회)</div>`;
+    html=`<div class="alert success">모든 규칙 완전 준수! (Swap ${iter}회)</div>`;
   else
     html=`<div class="alert success" style="margin-bottom:8px">스케줄 생성 완료 (Swap ${iter}회)</div>`+html;
   alertEl.innerHTML=html;
 }
-
 
 function clearSchedule(){
   app.schedule={};
