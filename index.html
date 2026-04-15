@@ -1296,7 +1296,7 @@ async function generateSchedule() {
 
   let improved = true;
   let iterCount = 0;
-  const MAX_ITER = 200;
+  const MAX_ITER = 2000;
 
   while (improved && iterCount < MAX_ITER) {
     improved = false;
@@ -1368,7 +1368,7 @@ async function generateSchedule() {
           const diff  = arr => Math.max(...arr) - Math.min(...arr);
 
           const afterScore =
-            diff(tots) * 1000 + diff(ns) * 900 + diff(e2s) * 700 +
+            diff(tots) * 10000 + diff(ns) * 8000 + diff(e2s) * 700 +
             diff(e1s) * 400 + diff(ds) * 200;
 
           const oldTots = specIds.map(id => curCnt[id].total);
@@ -1377,7 +1377,7 @@ async function generateSchedule() {
           const oldE1s  = specIds.map(id => curCnt[id].E1);
           const oldDs   = specIds.map(id => curCnt[id].D);
           const beforeScore =
-            diff(oldTots) * 1000 + diff(oldNs) * 900 + diff(oldE2s) * 700 +
+            diff(oldTots) * 10000 + diff(oldNs) * 8000 + diff(oldE2s) * 700 +
             diff(oldE1s) * 400 + diff(oldDs) * 200;
 
           if (afterScore < beforeScore) {
@@ -1434,30 +1434,33 @@ async function generateSchedule() {
     if (maxS >= 15) absViolations.push(`[절대5] ${s.name}: 연속 off ${maxS}일`);
   });
 
-  const chk = (arr, label, max, tag) => {
-    if (arr.length < 2) return;
-    const d = Math.max(...arr) - Math.min(...arr);
-    if (d > max) {
-      const det = specs.map((s,i) => `${s.name}:${arr[i]}`).join(' / ');
-      (tag==='hard'?hardViolations:softViolations).push(`[${tag==='hard'?'Hard':'Soft'}] ${label} 편차 ${d} — ${det}`);
-    }
-  };
-
   const spTot = specs.map(s=>dates.filter(d=>{const sh=schedule[`${s.id}_${d}`];return sh&&sh!=='OFF';}).length);
   const spN   = specs.map(s=>dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length);
   const spE2  = specs.map(s=>dates.filter(d=>schedule[`${s.id}_${d}`]==='E2').length);
   const spE1  = specs.map(s=>dates.filter(d=>schedule[`${s.id}_${d}`]==='E1').length);
   const spD   = specs.map(s=>dates.filter(d=>schedule[`${s.id}_${d}`]==='D').length);
 
+  const chk = (arr, label, max, violations) => {
+    if (arr.length < 2) return;
+    const d = Math.max(...arr) - Math.min(...arr);
+    if (d > max) {
+      const det = specs.map((s,i) => `${s.name}:${arr[i]}`).join(' / ');
+      violations.push(`${label} 편차 ${d} — ${det}`);
+    }
+  };
+
+  // 절대준수로 격상: 총 근무 차이 ≤1, N 차이 ≤1
+  chk(spTot,'[절대] 전문의 간 총 근무',1,absViolations);
+  chk(spN,  '[절대] 전문의 간 N',      1,absViolations);
+  // Hard
   if (prof) {
     const e1c = dates.filter(d=>schedule[`${prof.id}_${d}`]==='E1').length;
     if (e1c!==PROF_E1_TOTAL) hardViolations.push(`[Hard4] 진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL})`);
   }
-  chk(spTot,'전문의 간 총 근무',1,'hard');
-  chk(spN,  '전문의 간 N',      1,'hard');
-  chk(spE2, '전문의 간 E2',     1,'hard');
-  chk(spE1, '전문의 간 E1',     1,'soft');
-  chk(spD,  '전문의 간 D',      1,'soft');
+  chk(spE2, '[Hard] 전문의 간 E2',     1,hardViolations);
+  // Soft
+  chk(spE1, '[Soft] 전문의 간 E1',     1,softViolations);
+  chk(spD,  '[Soft] 전문의 간 D',      1,softViolations);
   specs.forEach(s=>{
     for(let w=0;w<8;w++){
       const wc=dates.slice(w*7,(w+1)*7).filter(d=>{const sh=schedule[`${s.id}_${d}`];return sh&&sh!=='OFF';}).length;
