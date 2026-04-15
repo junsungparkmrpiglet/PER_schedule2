@@ -314,8 +314,6 @@ input:focus,select:focus{outline:none;border-color:var(--border2)}
       <div id="stats-wrap"><div style="color:var(--text2);font-size:13px">스케줄을 먼저 생성해 주세요.</div></div>
     </div>
 
-  </div>
-</div>
 
 <!-- Overlay / Modal -->
 
@@ -1195,19 +1193,41 @@ async function generateSchedule() {
       }
     });
 
-    // mustWork 먼저 처리
-    specIds.forEach(id => {
-      if (Object.values(assigned).includes(id)) return;
-      const pastOff = consecOff(schedule, id, dates, di-1);
-      const futureBlocked = futureBlockedStreak(id, dates, di+1);
-      if (!(pastOff >= 13 || (pastOff + futureBlocked >= 13))) return;
-      if (weekWork(schedule, id, date, dates) >= 5) return;
+    // mustWork 먼저 처리 (연속off 위험 + 총근무 deficit 큰 사람)
+    // 목표 근무수 계산 (현재까지 진행 기준)
+    const daysLeft = dates.length - di;
+    const targetTotal = Math.round(dates.length * SHIFTS.length / specIds.length);
 
+    // mustWork 우선순위: 연속off위험 > deficit 큰 순
+    const mustWorkList = specIds
+      .filter(id => {
+        if (Object.values(assigned).includes(id)) return false;
+        if (weekWork(schedule, id, date, dates) >= 5) return false;
+        if (!SHIFTS.some(sh => !assigned[sh] && absOk(schedule, id, date, sh, dates))) return false;
+        const pastOff = consecOff(schedule, id, dates, di-1);
+        const futureBlocked = futureBlockedStreak(id, dates, di+1);
+        const isOffDanger = pastOff >= 13 || (pastOff + futureBlocked >= 13);
+        // deficit: 목표 근무수 - 현재 근무수, 남은 날로 따라잡기 어려운 경우
+        const deficit = targetTotal - cnt[id].total;
+        const slotsNeeded = deficit; // 앞으로 이만큼 더 배정 필요
+        const isDeficit = slotsNeeded > daysLeft * 0.5; // 남은 날의 50% 이상 근무해야 하면 우선
+        return isOffDanger || isDeficit;
+      })
+      .sort((a, b) => {
+        // 연속off 위험 먼저
+        const aOff = consecOff(schedule, a, dates, di-1) + futureBlockedStreak(a, dates, di+1);
+        const bOff = consecOff(schedule, b, dates, di-1) + futureBlockedStreak(b, dates, di+1);
+        if (aOff !== bOff) return bOff - aOff;
+        // deficit 큰 사람 먼저
+        return (cnt[b].total - cnt[a].total);
+      });
+
+    mustWorkList.forEach(id => {
+      if (Object.values(assigned).includes(id)) return;
       const availShifts = SHIFTS.filter(sh =>
         !assigned[sh] && absOk(schedule, id, date, sh, dates)
       );
       if (availShifts.length === 0) return;
-
       const wishedSh = availShifts.find(sh => isWishedById(id, date, sh));
       const chosenSh = wishedSh || availShifts.sort((a,b) => cnt[id][a]-cnt[id][b])[0];
       assigned[chosenSh] = id;
