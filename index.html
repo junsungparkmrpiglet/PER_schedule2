@@ -1194,7 +1194,8 @@ async function generateSchedule() {
                  absOk(schedule, pid, date, 'E1', dates)) {
         profShift = 'E1';
       }
-      if (profShift) {
+      // soft5: 진료교수도 주 5회 이상 금지
+      if (profShift && weekWork(schedule, pid, date, dates) < 5) {
         assigned[profShift] = pid;
         schedule[`${pid}_${date}`] = profShift;
         cnt[pid].total++; cnt[pid][profShift]++; if (special) cnt[pid].hol++;
