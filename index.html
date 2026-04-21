@@ -1414,9 +1414,53 @@ async function generateSchedule() {
     }
   }
 
-  // ── 3단계: N 편차 강제 보정 ──
+  // ── 3단계: 미배정 shift 해결 ──
+  pb.style.width = '88%';
+  logEl.textContent = '3단계: 미배정 shift 해결 중...';
+  await new Promise(r => setTimeout(r, 30));
+
+  for (let di = 0; di < dates.length; di++) {
+    const date = dates[di];
+    SHIFTS.forEach(sh => {
+      // 이 shift에 아무도 배정 안 됐으면
+      const assigned = allStaff.find(s => schedule[`${s.id}_${date}`] === sh);
+      if (assigned) return;
+
+      // 배정 가능한 전문의 찾기
+      const cands = specIds.filter(id => absOk(schedule, id, date, sh, dates));
+      if (cands.length > 0) {
+        // 당일 다른 shift에 있는 사람이면 swap 필요
+        // 당일 OFF인 사람 중 배정 가능한 사람 우선
+        const offCands = cands.filter(id => !schedule[`${id}_${date}`] || schedule[`${id}_${date}`] === 'OFF');
+        if (offCands.length > 0) {
+          const chosen = offCands[0];
+          schedule[`${chosen}_${date}`] = sh;
+          return;
+        }
+        // OFF인 사람 없으면: 당일 다른 shift에 있는 사람을 swap
+        // 해당 사람의 현재 shift를 다른 사람에게 넘기고 이 사람을 sh로
+        for (const id of cands) {
+          const curSh = schedule[`${id}_${date}`];
+          if (!curSh || curSh === 'OFF') continue;
+          // curSh를 받을 수 있는 다른 사람 찾기
+          const swapCand = specIds.find(id2 =>
+            id2 !== id &&
+            (!schedule[`${id2}_${date}`] || schedule[`${id2}_${date}`] === 'OFF') &&
+            absOk(schedule, id2, date, curSh, dates)
+          );
+          if (swapCand) {
+            schedule[`${swapCand}_${date}`] = curSh;
+            schedule[`${id}_${date}`] = sh;
+            break;
+          }
+        }
+      }
+    });
+  }
+
+  // ── 4단계: N 편차 강제 보정 ──
   pb.style.width = '92%';
-  logEl.textContent = '3단계: N 편차 보정 중...';
+  logEl.textContent = '4단계: N 편차 보정 중...';
   await new Promise(r => setTimeout(r, 30));
 
   for (let pass = 0; pass < 100; pass++) {
@@ -1695,6 +1739,13 @@ function showDayTooltip(date, e){
     SHIFTS.forEach(sh => {
       // 불가 일정 체크
       const blocked = isBlockedById(s.id, date, sh);
+      // 당일 이미 다른 shift에 배정된 경우 불가
+      const todayShift = app.schedule[`${s.id}_${date}`];
+      const alreadyAssigned = todayShift && todayShift !== 'OFF' && todayShift !== sh;
+      // 해당 shift에 이미 다른 사람이 배정된 경우 불가
+      const shiftTaken = app.staff.some(s2 =>
+        s2.id !== s.id && app.schedule[`${s2.id}_${date}`] === sh
+      );
       // 휴게 체크 (전날 근무 → 오늘 shift)
       let restFail = false;
       if(di > 0){
@@ -1715,7 +1766,7 @@ function showDayTooltip(date, e){
           if(rest < SHIFT_REST[sh]) nextRestFail = true;
         }
       }
-      result[s.id][sh] = !blocked && !restFail && !nextRestFail;
+      result[s.id][sh] = !blocked && !alreadyAssigned && !shiftTaken && !restFail && !nextRestFail;
     });
   });
 
