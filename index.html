@@ -1742,9 +1742,9 @@ function showDayTooltip(date, e){
       // 당일 이미 다른 shift에 배정된 경우 불가
       const todayShift = app.schedule[`${s.id}_${date}`];
       const alreadyAssigned = todayShift && todayShift !== 'OFF' && todayShift !== sh;
-      // 해당 shift에 이미 다른 사람이 배정된 경우 불가
+      // 해당 shift에 이미 누군가 배정된 경우 불가 (본인 포함)
       const shiftTaken = app.staff.some(s2 =>
-        s2.id !== s.id && app.schedule[`${s2.id}_${date}`] === sh
+        app.schedule[`${s2.id}_${date}`] === sh
       );
       // 휴게 체크 (전날 근무 → 오늘 shift)
       let restFail = false;
