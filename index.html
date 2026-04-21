@@ -1564,8 +1564,16 @@ function renderCalView(){
       leg.appendChild(div);
     });
   }
-  // 8주 전체 그리드
+  // 8주 전체 그리드 (달력 배열)
   const el=document.getElementById('vcal');el.innerHTML='';
+  // 첫날 요일에 맞게 빈 셀 추가 (월=0, 일=6)
+  const firstDow = dowMon(dates[0]);
+  for(let i=0; i<firstDow; i++){
+    const empty=document.createElement('div');
+    empty.className='vcal-day';
+    empty.style.visibility='hidden';
+    el.appendChild(empty);
+  }
   dates.forEach(date=>{
     const div=document.createElement('div');div.className='vcal-day';
     if(isHoliday(date))div.classList.add('hol');
@@ -1687,7 +1695,7 @@ function showDayTooltip(date, e){
     SHIFTS.forEach(sh => {
       // 불가 일정 체크
       const blocked = isBlockedById(s.id, date, sh);
-      // 휴게 체크 (전날 근무)
+      // 휴게 체크 (전날 근무 → 오늘 shift)
       let restFail = false;
       if(di > 0){
         const ps = app.schedule[`${s.id}_${dates[di-1]}`];
@@ -1697,7 +1705,17 @@ function showDayTooltip(date, e){
           if(rest < SHIFT_REST[ps]) restFail = true;
         }
       }
-      result[s.id][sh] = !blocked && !restFail;
+      // 휴게 체크 (오늘 shift → 다음날 근무)
+      let nextRestFail = false;
+      if(di < dates.length - 1){
+        const ns = app.schedule[`${s.id}_${dates[di+1]}`];
+        if(ns && ns !== 'OFF'){
+          const endH = SHIFT_END[sh], startH = SHIFT_START[ns];
+          const rest = startH >= endH ? startH - endH : startH + 24 - endH;
+          if(rest < SHIFT_REST[sh]) nextRestFail = true;
+        }
+      }
+      result[s.id][sh] = !blocked && !restFail && !nextRestFail;
     });
   });
 
