@@ -1742,9 +1742,10 @@ function showDayTooltip(date, e){
       // 당일 이미 다른 shift에 배정된 경우 불가
       const todayShift = app.schedule[`${s.id}_${date}`];
       const alreadyAssigned = todayShift && todayShift !== 'OFF' && todayShift !== sh;
-      // 해당 shift에 이미 누군가 배정된 경우 불가 (본인 포함)
+      // 해당 shift에 이미 다른 사람이 배정된 경우 불가
+      // (본인이 배정된 경우는 제외 - 수정 참고용이므로 현재 배정자는 표시)
       const shiftTaken = app.staff.some(s2 =>
-        app.schedule[`${s2.id}_${date}`] === sh
+        s2.id !== s.id && app.schedule[`${s2.id}_${date}`] === sh
       );
       // 휴게 체크 (전날 근무 → 오늘 shift)
       let restFail = false;
@@ -1770,30 +1771,64 @@ function showDayTooltip(date, e){
     });
   });
 
-  // 분류
-  const allOk = specs.filter(s => SHIFTS.every(sh => result[s.id][sh]));
-  const allNo = specs.filter(s => SHIFTS.every(sh => !result[s.id][sh]));
+  // 빈 shift 목록 (아직 아무도 배정 안 된 shift)
+  const emptyShifts = SHIFTS.filter(sh =>
+    !app.staff.some(s2 => app.schedule[`${s2.id}_${date}`] === sh)
+  );
+
+  // 현재 배정 현황 표시
+  let html = `<div style="font-weight:700;margin-bottom:6px;color:#FFD700">${date}</div>`;
+  html += `<div class="tt-section"><div class="tt-label">현재 배정</div>`;
+  SHIFTS.forEach(sh => {
+    const worker = app.staff.find(s2 => app.schedule[`${s2.id}_${date}`] === sh);
+    const ci = worker ? app.staff.findIndex(s2=>s2.id===worker.id) : -1;
+    const c = ci>=0 ? staffColorByIdx(ci) : null;
+    html += `<div class="tt-row">
+      <span class="tt-sh">${sh}</span>
+      <span style="${c?`color:${c.dot}`:'color:#888'}">${worker ? worker.name : '미배정'}</span>
+    </div>`;
+  });
+  html += `</div>`;
+
+  if(emptyShifts.length === 0){
+    html += `<div style="color:#aaa;font-size:10px;margin-top:4px">모든 shift 배정 완료</div>`;
+    tt.innerHTML = html;
+    tt.style.display = 'block';
+    moveDayTooltip(e);
+    return;
+  }
+
+  // 빈 shift에 대한 배정 가능/불가 분류
+  // result[s.id][sh]에서 이미 배정된 shift는 shiftTaken으로 불가 처리됨
+  // 빈 shift에만 집중
+  const canAnyEmpty = s => emptyShifts.some(sh => result[s.id][sh]);
+  const canAllEmpty = s => emptyShifts.every(sh => result[s.id][sh]);
+
+  const allOk = specs.filter(s => canAllEmpty(s));
+  const allNo = specs.filter(s => !canAnyEmpty(s));
   const partial = specs.filter(s => !allOk.includes(s) && !allNo.includes(s));
 
-  let html = `<div style="font-weight:700;margin-bottom:6px;color:#FFD700">${date}</div>`;
+  html += `<div style="border-top:0.5px solid #444;margin:6px 0;padding-top:6px">
+    <div class="tt-label" style="margin-bottom:4px">빈 shift 배정 가능 여부</div>`;
 
   if(allOk.length > 0){
-    html += `<div class="tt-section"><div class="tt-label">전일 배정 가능</div>
+    html += `<div class="tt-section"><div class="tt-label">전 shift 가능</div>
       <div class="tt-names">${allOk.map(s=>s.name).join(' ')}</div></div>`;
   }
   if(allNo.length > 0){
-    html += `<div class="tt-section"><div class="tt-label">전일 배정 불가</div>
+    html += `<div class="tt-section"><div class="tt-label">전 shift 불가</div>
       <div class="tt-names" style="color:#ff8080">${allNo.map(s=>s.name).join(' ')}</div></div>`;
   }
   if(partial.length > 0){
-    html += `<div class="tt-section"><div class="tt-label">부분 배정 가능</div>`;
-    SHIFTS.forEach(sh => {
+    html += `<div class="tt-section"><div class="tt-label">부분 가능</div>`;
+    emptyShifts.forEach(sh => {
       const ok = partial.filter(s => result[s.id][sh]);
       if(ok.length > 0)
         html += `<div class="tt-row"><span class="tt-sh">${sh}</span><span>${ok.map(s=>s.name).join(' ')}</span></div>`;
     });
     html += `</div>`;
   }
+  html += `</div>`;
 
   tt.innerHTML = html;
   tt.style.display = 'block';
