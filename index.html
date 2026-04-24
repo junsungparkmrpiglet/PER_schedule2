@@ -1127,13 +1127,7 @@ async function generateSchedule() {
         if (sh && sh !== 'OFF' && isBlockedById(s.id, d, sh))
           v.push({type:'abs1', name:s.name, date:d, shift:sh, id:s.id});
       });
-      // 절대2: 희망 미반영
-      dates.forEach(d => {
-        SHIFTS.forEach(wsh => {
-          if (isWishedById(s.id, d, wsh) && schedule[`${s.id}_${d}`] !== wsh)
-            v.push({type:'abs2', name:s.name, date:d, shift:wsh, id:s.id});
-        });
-      });
+      // 희망은 절대준수 아님 - 별도 soft 체크
       // 절대3,4: 휴게
       for (let i = 1; i < dates.length; i++) {
         const sh = schedule[`${s.id}_${dates[i]}`];
@@ -1283,8 +1277,8 @@ async function generateSchedule() {
             const sh1=schedule[`${s1.id}_${date}`], sh2=schedule[`${s2.id}_${date}`];
             if (!sh1||!sh2||sh1===sh2||sh1==='OFF'||sh2==='OFF') continue;
             if (isBlockedById(s1.id,date,sh2)||isBlockedById(s2.id,date,sh1)) continue;
-            if (isWishedById(s1.id,date,sh1)||isWishedById(s2.id,date,sh2)) continue;
-            if (isWishedById(s1.id,date,sh2)||isWishedById(s2.id,date,sh1)) continue;
+            // 희망 보호: 희망→다른shift swap은 희망 손실이므로 점수에 페널티
+            const wishPenalty = (isWishedById(s1.id,date,sh1)?500:0)+(isWishedById(s2.id,date,sh2)?500:0);
             if (di>0){
               const ps1=schedule[`${s1.id}_${dates[di-1]}`], ps2=schedule[`${s2.id}_${dates[di-1]}`];
               if(!checkRest(ps1,sh2)||!checkRest(ps2,sh1)) continue;
@@ -1308,7 +1302,7 @@ async function generateSchedule() {
             const before=diff(specIds.map(id=>cnt[id].total))*10000+diff(specIds.map(id=>cnt[id].N))*8000+
               diff(specIds.map(id=>cnt[id].E2))*700+diff(specIds.map(id=>cnt[id].hol))*600+
               diff(specIds.map(id=>cnt[id].E1))*400+diff(specIds.map(id=>cnt[id].D))*200;
-            if (after < before) {
+            if (after + wishPenalty < before) {
               schedule[`${s1.id}_${date}`]=sh2; schedule[`${s2.id}_${date}`]=sh1;
               cnt[s1.id]=tc1; cnt[s2.id]=tc2; improved=true;
             }
@@ -1471,10 +1465,11 @@ async function generateSchedule() {
       if(sh&&sh!=='OFF'&&isBlockedById(s.id,d,sh))
         absViolations.push(`[절대1] ${s.name} ${d} 불가인데 ${sh}`);
     });
+    // 희망 미반영은 soft로 처리
     dates.forEach(d => {
       SHIFTS.forEach(wsh => {
         if(isWishedById(s.id,d,wsh)&&bestSchedule[`${s.id}_${d}`]!==wsh)
-          absViolations.push(`[절대2] ${s.name} ${d} ${wsh} 희망 → ${bestSchedule[`${s.id}_${d}`]||'OFF'}`);
+          softViolations.push(`[희망미반영] ${s.name} ${d} ${wsh} → ${bestSchedule[`${s.id}_${d}`]||'OFF'}`);
       });
     });
     for(let i=1;i<dates.length;i++){
@@ -1787,10 +1782,11 @@ function renderViolations(){
       if(sh&&sh!=='OFF'&&isBlockedById(s.id,d,sh))
         violations.push({type:'abs',msg:`[절대1] ${s.name} ${d} 불가인데 ${sh}`});
     });
+    // 희망 미반영 - soft로 처리
     dates.forEach(d=>{
       SHIFTS.forEach(wsh=>{
         if(isWishedById(s.id,d,wsh)&&app.schedule[`${s.id}_${d}`]!==wsh)
-          violations.push({type:'abs',msg:`[절대2] ${s.name} ${d} ${wsh} 희망 미반영`});
+          violations.push({type:'soft',msg:`[희망] ${s.name} ${d} ${wsh} 미반영`});
       });
     });
     for(let i=1;i<dates.length;i++){
