@@ -1154,6 +1154,11 @@ async function generateSchedule() {
       v.push({type:'total', diff: Math.max(...spTot)-Math.min(...spTot)});
     if (spN.length > 1 && Math.max(...spN)-Math.min(...spN) > 1)
       v.push({type:'nDiff', diff: Math.max(...spN)-Math.min(...spN)});
+    // 절대: 진료교수 E1 24개
+    if (prof) {
+      const e1c = dates.filter(d => schedule[`${prof.id}_${d}`]==='E1').length;
+      if (e1c !== PROF_E1_TOTAL) v.push({type:'profE1', count:e1c});
+    }
     return v;
   }
 
@@ -1366,6 +1371,79 @@ async function generateSchedule() {
     return iter;
   }
 
+  // ── 총근무 편차 보정 ──
+  function fixTotalDiff(schedule, cnt) {
+    for (let pass = 0; pass < 200; pass++) {
+      const tArr = specs.map(s=>({s, t:cnt[s.id].total}));
+      tArr.sort((a,b)=>b.t-a.t);
+      const maxS=tArr[0], minS=tArr[tArr.length-1];
+      if (maxS.t - minS.t <= 1) break;
+      let swapped = false;
+
+      // maxS가 근무인 날, minS가 OFF인 날 찾아서
+      // 다른 사람(OFF인 사람)이 maxS 근무를 대신하고 minS에 배정
+      for (const date of dates) {
+        if (swapped) break;
+        const maxSh = schedule[`${maxS.s.id}_${date}`];
+        if (!maxSh || maxSh === 'OFF') continue;
+        const minSh = schedule[`${minS.s.id}_${date}`];
+        if (minSh && minSh !== 'OFF') continue; // minS 이미 근무 중이면 스킵
+
+        // minS가 이 날 OFF → minS가 이 날 배정 가능한 shift 찾기
+        const di = dates.indexOf(date);
+        const availForMin = SHIFTS.filter(sh => {
+          if (isBlockedById(minS.s.id, date, sh)) return false;
+          if (di>0){const ps=schedule[`${minS.s.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,sh))return false;}
+          if (di<dates.length-1){const ns=schedule[`${minS.s.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest(sh,ns))return false;}
+          // 이 shift가 이미 다른 사람에게 배정됐는지
+          return !specs.some(s2=>s2.id!==minS.s.id&&schedule[`${s2.id}_${date}`]===sh);
+        });
+        if (availForMin.length === 0) continue;
+
+        // maxS를 이 날 OFF로 만들 수 있는지 (maxS shift를 다른 사람이 대신)
+        // 단, maxS shift와 minS shift가 다를 수 있음
+        const sh = availForMin[0];
+
+        // maxS가 현재 맡은 shift를 다른 OFF 전문의가 대신할 수 있는지
+        const replacer = specs.find(s2 => {
+          if (s2.id===maxS.s.id||s2.id===minS.s.id) return false;
+          if (schedule[`${s2.id}_${date}`]&&schedule[`${s2.id}_${date}`]!=='OFF') return false;
+          if (isBlockedById(s2.id,date,maxSh)) return false;
+          if (di>0){const ps=schedule[`${s2.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,maxSh))return false;}
+          if (di<dates.length-1){const ns=schedule[`${s2.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest(maxSh,ns))return false;}
+          return true;
+        });
+
+        if (replacer) {
+          // maxS OFF, replacer가 maxSh, minS가 sh
+          if (sh === maxSh) {
+            // minS가 maxSh 가능하면 직접 교체
+            schedule[`${maxS.s.id}_${date}`] = 'OFF';
+            schedule[`${minS.s.id}_${date}`] = maxSh;
+            cnt[maxS.s.id].total--; cnt[maxS.s.id][maxSh]--;
+            cnt[minS.s.id].total++; cnt[minS.s.id][maxSh]++;
+          } else {
+            schedule[`${maxS.s.id}_${date}`] = 'OFF';
+            schedule[`${replacer.id}_${date}`] = maxSh;
+            schedule[`${minS.s.id}_${date}`] = sh;
+            cnt[maxS.s.id].total--; cnt[maxS.s.id][maxSh]--;
+            cnt[replacer.id].total++; cnt[replacer.id][maxSh]++;
+            cnt[minS.s.id].total++; cnt[minS.s.id][sh]++;
+          }
+          swapped = true;
+        } else if (availForMin.includes(maxSh)) {
+          // replacer 없어도 minS가 maxSh 가능하면 직접 교체
+          schedule[`${maxS.s.id}_${date}`] = 'OFF';
+          schedule[`${minS.s.id}_${date}`] = maxSh;
+          cnt[maxS.s.id].total--; cnt[maxS.s.id][maxSh]--;
+          cnt[minS.s.id].total++; cnt[minS.s.id][maxSh]++;
+          swapped = true;
+        }
+      }
+      if (!swapped) break;
+    }
+  }
+
   // ── 미배정 shift 해결 ──
   function fixUnassigned(schedule) {
     for (let di = 0; di < dates.length; di++) {
@@ -1392,6 +1470,49 @@ async function generateSchedule() {
             schedule[`${id}_${date}`]=sh; break;
           }
         }
+      });
+    }
+  }
+
+  // ── 진료교수 E1 24개 보정 ──
+  function fixProfE1(schedule, cnt) {
+    if (!prof) return;
+    const e1c = dates.filter(d => schedule[`${prof.id}_${d}`]==='E1').length;
+    if (e1c === PROF_E1_TOTAL) return;
+
+    if (e1c < PROF_E1_TOTAL) {
+      // E1 부족: OFF인 날 중 E1 배정 가능한 날 찾기
+      let needed = PROF_E1_TOTAL - e1c;
+      for (const date of dates) {
+        if (needed <= 0) break;
+        if (schedule[`${prof.id}_${date}`] && schedule[`${prof.id}_${date}`] !== 'OFF') continue;
+        if (isBlockedById(prof.id, date, 'E1')) continue;
+        // E1 자리가 비어있어야 함
+        if (specs.some(s => schedule[`${s.id}_${date}`]==='E1')) continue;
+        // 휴게 체크
+        const di = dates.indexOf(date);
+        let ok = true;
+        if (di>0){const ps=schedule[`${prof.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,'E1'))ok=false;}
+        if (di<dates.length-1){const ns=schedule[`${prof.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest('E1',ns))ok=false;}
+        if (!ok) continue;
+        // 이 날 E1에 있는 전문의를 다른 shift로 옮기거나
+        // 아무도 E1에 없으면 바로 배정
+        schedule[`${prof.id}_${date}`] = 'E1';
+        if (!cnt[prof.id]) cnt[prof.id] = {total:0,D:0,E1:0,E2:0,N:0,hol:0};
+        cnt[prof.id].E1++; cnt[prof.id].total++;
+        needed--;
+      }
+    } else {
+      // E1 초과: 가장 나중 E1 날짜부터 제거 (화목토 아닌 날 우선)
+      let excess = e1c - PROF_E1_TOTAL;
+      const e1Dates = dates.filter(d => schedule[`${prof.id}_${d}`]==='E1');
+      // 화목토 아닌 날 먼저 제거
+      const nonFixed = e1Dates.filter(d => !PROF_E1_DAYS.includes(dowMon(d)));
+      const fixed = e1Dates.filter(d => PROF_E1_DAYS.includes(dowMon(d)));
+      const toRemove = [...nonFixed, ...fixed].slice(0, excess);
+      toRemove.forEach(date => {
+        schedule[`${prof.id}_${date}`] = 'OFF';
+        cnt[prof.id].E1--; cnt[prof.id].total--;
       });
     }
   }
@@ -1480,10 +1601,18 @@ async function generateSchedule() {
     if (profE1Set.size < PROF_E1_TOTAL) {
       const needed=PROF_E1_TOTAL-profE1Set.size;
       const nonFixed=dates.filter(d=>!PROF_E1_DAYS.includes(dowMon(d))&&!isBlockedById(prof.id,d,'E1')&&!profE1Set.has(d));
+      // 주차별 균등 분산
       const weeks=[];
       for(let w=0;w<8;w++){const wd=nonFixed.filter(d=>{const di=dates.indexOf(d);return di>=w*7&&di<(w+1)*7;});if(wd.length>0)weeks.push(wd);}
       let added=0,round=0;
       while(added<needed&&round<10){for(const wd of weeks){if(added>=needed)break;const ny=wd.filter(d=>!profE1Set.has(d));if(ny.length>0){profE1Set.add(ny[0]);added++;}}round++;}
+      // 그래도 부족하면 희망 날짜도 포함해서 채우기
+      if (profE1Set.size < PROF_E1_TOTAL) {
+        for (const d of dates) {
+          if (profE1Set.size >= PROF_E1_TOTAL) break;
+          if (!profE1Set.has(d) && !isBlockedById(prof.id, d, 'E1')) profE1Set.add(d);
+        }
+      }
     }
     if (profE1Set.size>PROF_E1_TOTAL){
       const fixed=[...profE1Set].filter(d=>PROF_E1_DAYS.includes(dowMon(d)));
@@ -1513,7 +1642,9 @@ async function generateSchedule() {
       dates.forEach(d=>{const sh=schedule[`${s.id}_${d}`];if(sh&&sh!=='OFF'){cnt[s.id].total++;cnt[s.id][sh]++;if(isSpecial(d))cnt[s.id].hol++;}});
     });
 
+    fixProfE1(schedule, cnt);
     fixNDiff(schedule, cnt);
+    fixTotalDiff(schedule, cnt);
 
     const violations = checkAbsViolations(schedule);
     // 절대1,2,3,4,5만 체크 (total/N 편차는 별도)
@@ -1532,7 +1663,9 @@ async function generateSchedule() {
       });
 
       const swapIter = await runSwap(schedule, cnt, 10000, 'Swap 최적화');
+      fixProfE1(schedule, cnt);
       fixNDiff(schedule, cnt);
+      fixTotalDiff(schedule, cnt);
 
       bestSchedule = schedule;
       bestViolations = checkAbsViolations(schedule);
@@ -1595,7 +1728,7 @@ async function generateSchedule() {
 
   chk(spTot,'[절대] 전문의 간 총 근무',1,absViolations);
   chk(spN,  '[절대] 전문의 간 N',      1,absViolations);
-  if(prof){const e1c=dates.filter(d=>bestSchedule[`${prof.id}_${d}`]==='E1').length;if(e1c!==PROF_E1_TOTAL)hardViolations.push(`[Hard4] 진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL})`);}
+  if(prof){const e1c=dates.filter(d=>bestSchedule[`${prof.id}_${d}`]==='E1').length;if(e1c!==PROF_E1_TOTAL)absViolations.push(`[절대] 진료교수 E1 ${e1c}개 (목표 ${PROF_E1_TOTAL})`);}
   chk(spE2, '[Hard] 전문의 간 E2',       1,hardViolations);
   chk(spHol,'[Hard] 전문의 간 휴일 근무',1,hardViolations);
   chk(spE2N,'[Hard] 전문의 간 E2+N',     1,hardViolations);
