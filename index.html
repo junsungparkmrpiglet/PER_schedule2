@@ -1477,43 +1477,67 @@ async function generateSchedule() {
   // ── 진료교수 E1 24개 보정 ──
   function fixProfE1(schedule, cnt) {
     if (!prof) return;
-    const e1c = dates.filter(d => schedule[`${prof.id}_${d}`]==='E1').length;
-    if (e1c === PROF_E1_TOTAL) return;
+    const pid = prof.id;
 
-    if (e1c < PROF_E1_TOTAL) {
-      // E1 부족: OFF인 날 중 E1 배정 가능한 날 찾기
-      let needed = PROF_E1_TOTAL - e1c;
-      for (const date of dates) {
-        if (needed <= 0) break;
-        if (schedule[`${prof.id}_${date}`] && schedule[`${prof.id}_${date}`] !== 'OFF') continue;
-        if (isBlockedById(prof.id, date, 'E1')) continue;
-        // E1 자리가 비어있어야 함
-        if (specs.some(s => schedule[`${s.id}_${date}`]==='E1')) continue;
-        // 휴게 체크
-        const di = dates.indexOf(date);
-        let ok = true;
-        if (di>0){const ps=schedule[`${prof.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,'E1'))ok=false;}
-        if (di<dates.length-1){const ns=schedule[`${prof.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest('E1',ns))ok=false;}
-        if (!ok) continue;
-        // 이 날 E1에 있는 전문의를 다른 shift로 옮기거나
-        // 아무도 E1에 없으면 바로 배정
-        schedule[`${prof.id}_${date}`] = 'E1';
-        if (!cnt[prof.id]) cnt[prof.id] = {total:0,D:0,E1:0,E2:0,N:0,hol:0};
-        cnt[prof.id].E1++; cnt[prof.id].total++;
-        needed--;
+    // E1 초과: 화목토 아닌 날부터 제거
+    {
+      const e1Dates = dates.filter(d => schedule[`${pid}_${d}`]==='E1');
+      if (e1Dates.length > PROF_E1_TOTAL) {
+        const nonFixed = e1Dates.filter(d => !PROF_E1_DAYS.includes(dowMon(d)));
+        const fixed = e1Dates.filter(d => PROF_E1_DAYS.includes(dowMon(d)));
+        const toRemove = [...nonFixed, ...fixed].slice(0, e1Dates.length - PROF_E1_TOTAL);
+        toRemove.forEach(date => {
+          schedule[`${pid}_${date}`] = 'OFF';
+          cnt[pid].E1--; cnt[pid].total--;
+        });
       }
-    } else {
-      // E1 초과: 가장 나중 E1 날짜부터 제거 (화목토 아닌 날 우선)
-      let excess = e1c - PROF_E1_TOTAL;
-      const e1Dates = dates.filter(d => schedule[`${prof.id}_${d}`]==='E1');
-      // 화목토 아닌 날 먼저 제거
-      const nonFixed = e1Dates.filter(d => !PROF_E1_DAYS.includes(dowMon(d)));
-      const fixed = e1Dates.filter(d => PROF_E1_DAYS.includes(dowMon(d)));
-      const toRemove = [...nonFixed, ...fixed].slice(0, excess);
-      toRemove.forEach(date => {
-        schedule[`${prof.id}_${date}`] = 'OFF';
-        cnt[prof.id].E1--; cnt[prof.id].total--;
-      });
+    }
+
+    // E1 부족: 전문의 E1을 다른 shift로 옮기고 진료교수 넣기
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const e1c = dates.filter(d => schedule[`${pid}_${d}`]==='E1').length;
+      if (e1c >= PROF_E1_TOTAL) break;
+
+      let fixed = false;
+      for (const date of dates) {
+        if (schedule[`${pid}_${date}`]==='E1') continue; // 이미 배정
+        // 진료교수가 이 날 E1 가능한지
+        if (isBlockedById(pid, date, 'E1')) continue;
+        if (schedule[`${pid}_${date}`] && schedule[`${pid}_${date}`] !== 'OFF') continue;
+        const di = dates.indexOf(date);
+        let profOk = true;
+        if (di>0){const ps=schedule[`${pid}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,'E1'))profOk=false;}
+        if (di<dates.length-1){const ns=schedule[`${pid}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest('E1',ns))profOk=false;}
+        if (!profOk) continue;
+
+        // E1 자리에 전문의 있으면 다른 shift로 옮기기
+        const specOnE1 = specs.find(s => schedule[`${s.id}_${date}`]==='E1');
+        if (specOnE1) {
+          // specOnE1을 다른 비어있는 shift로 옮길 수 있는지
+          const otherShift = SHIFTS.filter(sh => sh!=='E1').find(sh => {
+            if (schedule[`${specOnE1.id}_${date}`] === sh) return false;
+            if (isBlockedById(specOnE1.id, date, sh)) return false;
+            if (specs.some(s2=>s2.id!==specOnE1.id&&schedule[`${s2.id}_${date}`]===sh)) return false;
+            if (di>0){const ps=schedule[`${specOnE1.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,sh))return false;}
+            if (di<dates.length-1){const ns=schedule[`${specOnE1.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest(sh,ns))return false;}
+            return true;
+          });
+          if (otherShift) {
+            schedule[`${specOnE1.id}_${date}`] = otherShift;
+            cnt[specOnE1.id].E1--;
+            cnt[specOnE1.id][otherShift]++;
+            schedule[`${pid}_${date}`] = 'E1';
+            cnt[pid].E1++; cnt[pid].total++;
+            fixed = true; break;
+          }
+        } else {
+          // E1 자리 비어있으면 바로 배정
+          schedule[`${pid}_${date}`] = 'E1';
+          cnt[pid].E1++; cnt[pid].total++;
+          fixed = true; break;
+        }
+      }
+      if (!fixed) break;
     }
   }
 
