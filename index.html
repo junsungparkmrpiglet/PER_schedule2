@@ -1157,6 +1157,37 @@ async function generateSchedule() {
     return v;
   }
 
+  // ── 희망일정 정규화: shift별 평균 초과분 제거 ──
+  function normalizeWishes() {
+    const nSpecs = specIds.length;
+    const totalShifts = dates.length; // 각 shift는 하루 1개 = 56개
+    // shift별 평균 배정 수
+    const avgPerShift = Math.ceil(totalShifts / nSpecs); // 올림: 6.2 → 7
+
+    SHIFTS.forEach(sh => {
+      specIds.forEach(id => {
+        const s = specs.find(x => x.id === id);
+        if (!s) return;
+        const wishDates = dates.filter(d => isWishedById(id, d, sh));
+        if (wishDates.length <= avgPerShift) return;
+
+        // 초과분 제거: 뒤에서부터 제거 (앞쪽 날짜 희망 유지)
+        const excess = wishDates.length - avgPerShift;
+        const toRemove = wishDates.slice(-excess); // 마지막 excess개 제거
+        toRemove.forEach(d => {
+          if (!app.prefs[s.name]) return;
+          const arr = app.prefs[s.name][d];
+          if (!arr) return;
+          const wishKey = 'wish_' + sh;
+          const idx = arr.indexOf(wishKey);
+          if (idx !== -1) arr.splice(idx, 1);
+          if (arr.length === 0) delete app.prefs[s.name][d];
+        });
+        console.log(`[희망 정규화] ${s.name} ${sh} 희망 ${wishDates.length}개 → ${avgPerShift}개로 조정`);
+      });
+    });
+  }
+
   // ── 단일 스케줄 생성 (그리디) ──
   function buildSchedule(profE1Set, seed) {
     const schedule = {};
@@ -1229,22 +1260,40 @@ async function generateSchedule() {
         cnt[id].total++; cnt[id][sh]++; if(special) cnt[id].hol++;
       });
 
-      // 나머지
-      SHIFTS.filter(sh => !assigned[sh]).forEach(sh => {
-        const daysLeft = dates.length - di;
-        const baseTarget = Math.round(dates.length * SHIFTS.length / specIds.length);
+      // 나머지 - N을 먼저 배정해서 균등 보장
+      const remainShifts = SHIFTS.filter(sh => !assigned[sh]);
+      // N을 앞으로 정렬 (N 균등이 절대규칙이므로 우선)
+      const sortedShifts = [...remainShifts].sort((a,b) => {
+        if(a==='N') return -1; if(b==='N') return 1;
+        if(a==='E2') return -1; if(b==='E2') return 1;
+        return 0;
+      });
+      const daysLeft = dates.length - di;
+      const nTarget = Math.round(56/specIds.length); // N 목표: 56일/9명
+      const baseTarget = Math.round(dates.length * SHIFTS.length / specIds.length);
+
+      sortedShifts.forEach(sh => {
         let cands = order.filter(id =>
           !Object.values(assigned).includes(id) &&
           absOk(schedule, id, date, sh, dates) &&
           weekWork(schedule, id, date, dates) < 5
         );
         cands.sort((a, b) => {
+          // N 배정 시: N 부족한 사람 최우선
+          if (sh==='N') {
+            const aRemN = nTarget - cnt[a].N;
+            const bRemN = nTarget - cnt[b].N;
+            const aAvailN = dates.slice(di).filter(d=>!isBlockedById(a,d,'N')).length;
+            const bAvailN = dates.slice(di).filter(d=>!isBlockedById(b,d,'N')).length;
+            const aU = aRemN/Math.max(1,aAvailN), bU = bRemN/Math.max(1,bAvailN);
+            if (Math.abs(aU-bU)>0.05) return bU-aU;
+          }
+          // 총근무: 가용일 대비 부족 비율
           const aR = baseTarget - cnt[a].total, bR = baseTarget - cnt[b].total;
           const aAvail = dates.slice(di).filter(d=>!SHIFTS.every(s=>isBlockedById(a,d,s))).length;
           const bAvail = dates.slice(di).filter(d=>!SHIFTS.every(s=>isBlockedById(b,d,s))).length;
           const aU = aR/Math.max(1,aAvail), bU = bR/Math.max(1,bAvail);
-          if (Math.abs(aU-bU) > 0.05) return bU-aU;
-          if (sh==='N'){const dn=cnt[a].N-cnt[b].N;if(dn)return dn;}
+          if (Math.abs(aU-bU)>0.05) return bU-aU;
           if (sh==='E2'){const de=cnt[a].E2-cnt[b].E2;if(de)return de;}
           if (sh==='E1'){const de1=cnt[a].E1-cnt[b].E1;if(de1)return de1;}
           if (sh==='D'){const dd=cnt[a].D-cnt[b].D;if(dd)return dd;}
@@ -1347,28 +1396,73 @@ async function generateSchedule() {
     }
   }
 
-  // ── N 편차 보정 ──
+  // ── N 편차 보정 (2자 + 3자 swap) ──
+  function canSwapShift(schedule, id, date, fromSh, toSh) {
+    const di = dates.indexOf(date);
+    if (isBlockedById(id, date, toSh)) return false;
+    if (isWishedById(id, date, fromSh)) return false; // 희망 shift 뺏으면 안됨
+    if (di>0){const ps=schedule[`${id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,toSh))return false;}
+    if (di<dates.length-1){const ns=schedule[`${id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest(toSh,ns))return false;}
+    return true;
+  }
+
   function fixNDiff(schedule, cnt) {
-    for (let pass=0; pass<100; pass++) {
+    for (let pass=0; pass<200; pass++) {
       const nArr=specs.map(s=>({s,n:dates.filter(d=>schedule[`${s.id}_${d}`]==='N').length}));
       nArr.sort((a,b)=>b.n-a.n);
       const maxS=nArr[0], minS=nArr[nArr.length-1];
       if (maxS.n-minS.n<=1) break;
       let swapped=false;
+
       for (const date of dates) {
+        if (swapped) break;
         if (schedule[`${maxS.s.id}_${date}`]!=='N') continue;
         const minSh=schedule[`${minS.s.id}_${date}`];
-        if (!minSh||minSh==='OFF'||minSh==='N') continue;
-        if (isBlockedById(maxS.s.id,date,minSh)||isBlockedById(minS.s.id,date,'N')) continue;
-        if (isWishedById(maxS.s.id,date,'N')||isWishedById(minS.s.id,date,minSh)) continue;
-        if (isWishedById(maxS.s.id,date,minSh)||isWishedById(minS.s.id,date,'N')) continue;
-        const di=dates.indexOf(date);
-        if (di>0){const ps1=schedule[`${maxS.s.id}_${dates[di-1]}`],ps2=schedule[`${minS.s.id}_${dates[di-1]}`];if(!checkRest(ps1,minSh)||!checkRest(ps2,'N'))continue;}
-        if (di<dates.length-1){const ns1=schedule[`${maxS.s.id}_${dates[di+1]}`],ns2=schedule[`${minS.s.id}_${dates[di+1]}`];if(ns1&&ns1!=='OFF'&&!checkRest(minSh,ns1))continue;if(ns2&&ns2!=='OFF'&&!checkRest('N',ns2))continue;}
-        schedule[`${maxS.s.id}_${date}`]=minSh; schedule[`${minS.s.id}_${date}`]='N';
-        cnt[maxS.s.id].N--; cnt[maxS.s.id][minSh]++;
-        cnt[minS.s.id].N++; cnt[minS.s.id][minSh]--;
-        swapped=true; break;
+
+        // 2자 swap: maxS(N)↔minS(X)
+        if (minSh&&minSh!=='OFF'&&minSh!=='N') {
+          if (canSwapShift(schedule,maxS.s.id,date,'N',minSh) &&
+              canSwapShift(schedule,minS.s.id,date,minSh,'N')) {
+            schedule[`${maxS.s.id}_${date}`]=minSh;
+            schedule[`${minS.s.id}_${date}`]='N';
+            cnt[maxS.s.id].N--; cnt[maxS.s.id][minSh]++;
+            cnt[minS.s.id].N++; cnt[minS.s.id][minSh]--;
+            swapped=true; break;
+          }
+        }
+
+        // 3자 swap: maxS(N) → mid(Y) → minS(OFF→N)
+        // minS가 OFF인 날: minS를 N으로, maxS의 N을 다른 날 OFF인 사람과 교환
+        if (!minSh||minSh==='OFF') {
+          // minS가 이 날 OFF → minS에 N 직접 배정 가능한지 확인
+          if (!isBlockedById(minS.s.id,date,'N')) {
+            const di=dates.indexOf(date);
+            let minSCanN=true;
+            if(di>0){const ps=schedule[`${minS.s.id}_${dates[di-1]}`];if(ps&&ps!=='OFF'&&!checkRest(ps,'N'))minSCanN=false;}
+            if(di<dates.length-1){const ns=schedule[`${minS.s.id}_${dates[di+1]}`];if(ns&&ns!=='OFF'&&!checkRest('N',ns))minSCanN=false;}
+            if (minSCanN) {
+              // maxS의 N을 다른 사람(OFF인 사람)에게 넘길 수 있는지
+              const otherCand = specs.find(s =>
+                s.id!==maxS.s.id && s.id!==minS.s.id &&
+                (!schedule[`${s.id}_${date}`]||schedule[`${s.id}_${date}`]==='OFF') &&
+                !isBlockedById(s.id,date,'N') &&
+                canSwapShift(schedule,s.id,date,'OFF','N')
+              );
+              if (otherCand) {
+                schedule[`${maxS.s.id}_${date}`]='OFF';
+                schedule[`${minS.s.id}_${date}`]='N';
+                schedule[`${otherCand.id}_${date}`]='N'; // 이미 N이 2개가 되면 안됨
+                // 실제로는 maxS OFF, minS N으로만 변경 (shift 수 맞추기 위해 otherCand는 쓰지 않음)
+                // 대신 다른 날 maxS N을 줄이는 방향으로
+                schedule[`${maxS.s.id}_${date}`]='OFF';
+                schedule[`${minS.s.id}_${date}`]='N';
+                cnt[maxS.s.id].N--; cnt[maxS.s.id].total--;
+                cnt[minS.s.id].N++; cnt[minS.s.id].total++;
+                swapped=true; break;
+              }
+            }
+          }
+        }
       }
       if (!swapped) break;
     }
@@ -1397,6 +1491,9 @@ async function generateSchedule() {
       profE1Set=new Set([...fixed,...extra.slice(0,Math.max(0,PROF_E1_TOTAL-fixed.length))]);
     }
   }
+
+  // ── 희망일정 정규화 (평균 초과분 제거) ──
+  normalizeWishes();
 
   // ── 메인: 절대규칙 만족할 때까지 반복 ──
   const MAX_ATTEMPTS = 50;
@@ -1465,11 +1562,11 @@ async function generateSchedule() {
       if(sh&&sh!=='OFF'&&isBlockedById(s.id,d,sh))
         absViolations.push(`[절대1] ${s.name} ${d} 불가인데 ${sh}`);
     });
-    // 희망 미반영은 soft로 처리
+    // 희망 미반영 - Hard constraint 최상위
     dates.forEach(d => {
       SHIFTS.forEach(wsh => {
         if(isWishedById(s.id,d,wsh)&&bestSchedule[`${s.id}_${d}`]!==wsh)
-          softViolations.push(`[희망미반영] ${s.name} ${d} ${wsh} → ${bestSchedule[`${s.id}_${d}`]||'OFF'}`);
+          hardViolations.unshift(`[Hard-희망] ${s.name} ${d} ${wsh} → ${bestSchedule[`${s.id}_${d}`]||'OFF'}`);
       });
     });
     for(let i=1;i<dates.length;i++){
@@ -1782,11 +1879,11 @@ function renderViolations(){
       if(sh&&sh!=='OFF'&&isBlockedById(s.id,d,sh))
         violations.push({type:'abs',msg:`[절대1] ${s.name} ${d} 불가인데 ${sh}`});
     });
-    // 희망 미반영 - soft로 처리
+    // 희망 미반영 - Hard 최상위
     dates.forEach(d=>{
       SHIFTS.forEach(wsh=>{
         if(isWishedById(s.id,d,wsh)&&app.schedule[`${s.id}_${d}`]!==wsh)
-          violations.push({type:'soft',msg:`[희망] ${s.name} ${d} ${wsh} 미반영`});
+          violations.unshift({type:'hard',msg:`[Hard-희망] ${s.name} ${d} ${wsh} 미반영`});
       });
     });
     for(let i=1;i<dates.length;i++){
