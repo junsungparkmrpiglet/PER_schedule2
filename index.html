@@ -309,6 +309,7 @@ main{padding:16px;max-width:1120px;margin:0 auto}
   </section>
 </main>
 
+
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbyNIuS3BVdFlGGHQKi_RZ4avQ5nS4yCicDn7trEymnuq3YKu4jEFtXyn0rHqs8URn8yqQ/exec';
 
@@ -506,7 +507,8 @@ function slotHTML(iso,p,opt){
   if(tr) cls+=' s'+tr;
   return '<button class="'+cls+'" data-date="'+iso+'" data-shift="'+p.name+'">'
        + '<span class="tag t-'+(mine?'x':p.name)+'">'+p.name+'</span>'
-       + '<span class="nm">'+(shown||'·')+'</span></button>';
+       + '<span class="nm">'+(shown||'·')
+       + '</span></button>';
 }
 
 function calendarHTML(opt){
@@ -939,53 +941,7 @@ document.getElementById('swapCal').addEventListener('click',function(e){
   app.pick = app.pick===k ? null : k;
   renderSwap();
 });
-document.getElementById('swapView').addEventListener('click',function(){
-  app.view=app.view==='cal'?'list':'cal'; save('view',app.view); renderAll();
-});
-document.getElementById('swapReset').addEventListener('click',function(){
-  app.pick=null; renderSwap();
-});
-/* ── 희망·불가 이벤트 ── */
-document.getElementById('pfCal').addEventListener('click',function(e){
-  var b=e.target.closest('button[data-pd]'); if(!b) return;
-  var d=b.dataset.pd, o=pfCell(d);
-  if(b.dataset.ps){
-    if(o.all) return;                                   // 전체 불가일 땐 개별 조작 없음
-    var cur=o.s[b.dataset.ps];
-    if(!cur) o.s[b.dataset.ps]='b';
-    else if(cur==='b') o.s[b.dataset.ps]='w';
-    else delete o.s[b.dataset.ps];
-  } else {
-    o.all=!o.all;
-    if(o.all) o.s={};
-  }
-  if(!o.all && !Object.keys(o.s).length) delete app.pf[d];
-  app.pfDirty=true; renderPrefs();
-});
 
-document.getElementById('pfSave').addEventListener('click',function(){
-  var btn=this, info=document.getElementById('pfInfo');
-  btn.disabled=true; info.textContent='저장 중…';
-  apiPost('savePrefs',{name:app.me, data:pfList()}).then(function(r){
-    if(!r.ok) throw new Error(r.error||'저장 실패');
-    app.pfDirty=false;
-    app.prefIdx[app.me]={};
-    pfList().forEach(function(x){
-      var o=app.pf[x.date];
-      app.prefIdx[app.me][x.date]={
-        name:app.me, date:x.date, tokens:x.prefType,
-        blockAll:!!o.all, wishAll:false,
-        block:Object.keys(o.s).filter(function(k){return o.s[k]==='b';}),
-        wish: Object.keys(o.s).filter(function(k){return o.s[k]==='w';})
-      };
-    });
-    btn.disabled=false; renderPrefs();
-    info.innerHTML=app.me+' · '+r.saved+'일 저장됨 <span class="ok">완료</span>';
-  }).catch(function(e){
-    btn.disabled=false;
-    info.innerHTML='<span class="bad">'+e.message+'</span>';
-  });
-});
 
 /* ── 관리자 이벤트 ── */
 function admOpen(on){
