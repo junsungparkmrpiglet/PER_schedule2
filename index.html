@@ -75,14 +75,14 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .slot.me .nm{color:var(--paper);font-weight:600}
 .slot.me .tag{background:var(--paper)}
 .slot.pick{outline:2px solid var(--ink);outline-offset:1px}
-.slot.cand{background:#FFF6D9;box-shadow:inset 0 0 0 1.5px #C99A16;border-radius:3px}
-.slot.cand .nm{font-weight:600}
+
+
 .t-D{color:var(--d-fg);background:var(--d-bg);border-color:var(--d-br)}
 .t-E{color:var(--e-fg);background:var(--e-bg);border-color:var(--e-br)}
 .t-N{color:var(--n-fg);background:var(--n-bg);border-color:var(--n-br)}
 .t-O{color:var(--o-fg);background:var(--o-bg);border-color:var(--o-br)}
 .t-x{color:var(--mid);background:var(--rest);border-color:var(--line-2)}
-.dim .slot:not(.me):not(.cand) .nm{color:var(--faint)}
+.dim .slot:not(.me) .nm{color:var(--faint)}
 
 .list{display:flex;flex-direction:column;gap:3px}
 .lrow{display:grid;grid-template-columns:78px 1fr;gap:8px;align-items:start;
@@ -100,25 +100,31 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .legend b{font-weight:500;color:var(--ink)}
 
 /* 교체 */
-.swapgrid{display:grid;grid-template-columns:300px 1fr;gap:14px;align-items:start}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{border:1px solid var(--line-2);border-radius:var(--r);background:var(--card);
-  padding:5px 9px;font-size:12.5px;display:flex;align-items:center;gap:6px}
-.chip .tag{width:15px;text-align:center;font-size:10px;font-weight:700;border-radius:2px;border:1px solid}
-.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
-.rows{display:flex;flex-direction:column;gap:5px}
-.crow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
-  border:1px solid var(--line);background:var(--card);border-radius:var(--r);padding:8px 10px;font-size:13px}
-.crow:hover{border-color:var(--ink)}
-.crow[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
-.crow .who2{font-weight:600;flex:none;min-width:52px}
-.crow .cnt{color:var(--mid);font-size:12px}
-.crow .warn{color:#A8431F;font-size:11.5px}
-.crow.no{opacity:.55}
-.crow.no:hover{border-color:var(--line)}
+.slot.mine-click{cursor:pointer}
+.slot.mine-click:hover{outline:2px solid var(--ink);outline-offset:1px}
+.s1{background:#F7D65B;box-shadow:inset 0 0 0 2px #8A6A00;border-radius:3px}
+.s1 .nm{color:#4A3900;font-weight:700}
+.s2{background:#FBE9A9;box-shadow:inset 0 0 0 1.5px #C99A16;border-radius:3px}
+.s2 .nm{color:#6B5200;font-weight:600}
+.s3{background:#FBF3D6;box-shadow:inset 0 0 0 1px #DEC97F;border-radius:3px}
+.s3 .nm{color:#7A6420}
+.s4{box-shadow:inset 0 0 0 1px var(--line-2);border-radius:3px}
+.s4 .nm{color:var(--mid)}
+.tierleg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;font-size:11.5px}
+.tierleg span{border-radius:3px;padding:2px 7px;white-space:nowrap}
+.tierleg .s4{box-shadow:inset 0 0 0 1px var(--line-2);color:var(--mid)}
+.tierleg .s1,.tierleg .s2,.tierleg .s3{color:#4A3900}
+
+
+
+
+
+
+
+
+
 .step{font-size:12px;color:var(--mid);margin-bottom:6px}
 .step b{color:var(--ink);font-weight:600}
-@media (max-width:820px){ .swapgrid{grid-template-columns:1fr} }
 @media (max-width:640px){ main{padding:12px} .topbar{padding:9px 12px} .tabs{padding:0 12px} }
 </style>
 </head>
@@ -158,23 +164,12 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 
   <section class="panel" data-panel="swap" hidden>
     <div class="bar"><div class="h">근무 교체</div><div class="spacer"></div>
+      <button class="btn" id="swapView">목록으로</button>
       <button class="btn" id="swapReset">처음부터</button></div>
-    <div class="swapgrid">
-      <div>
-        <div class="card" style="margin-bottom:10px">
-          <div class="h2">1 · 넘길 내 근무</div>
-          <div id="myShifts" class="chips"></div>
-        </div>
-        <div class="card">
-          <div class="h2">2 · 대신 설 수 있는 사람</div>
-          <div id="cands" class="rows"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="h2">3 · 받아올 근무</div>
-        <div class="step" id="swapStep"></div>
-        <div id="swapCal"></div>
-      </div>
+    <div class="card">
+      <div class="step" id="swapStep"></div>
+      <div class="tierleg" id="tierLeg"></div>
+      <div id="swapCal"></div>
     </div>
   </section>
 
@@ -209,7 +204,7 @@ var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
   me:'', onlyMine:false, view:'cal',
-  pick:null, cand:null, matches:{}
+  pick:null
 };
 
 function save(k,v){ try{ localStorage.setItem(LS+':'+k, JSON.stringify(v)); }catch(e){} }
@@ -352,26 +347,30 @@ function rollingBreak(name,addDate,addShift,skipKey){
 }
 
 /**
- * 내 근무 (date, shift) 를 넘길 때 성립하는 맞교환을 모두 찾습니다.
- * 반환: { 상대이름: [ {date, shift, warn} ... ] }
+ * 내 근무 (date, shift) 를 넘길 때 성립하는 맞교환을 전부 찾습니다.
+ * 사람 구분 없이 한 배열로 돌려주고, 조건 유사도로 등급을 매깁니다.
+ *   1 = 휴일여부·근무종류 모두 같음
+ *   2 = 근무종류 같고 휴일여부 다름
+ *   3 = 휴일여부 같고 근무종류 다름
+ *   4 = 둘 다 다름
  */
 function findSwaps(myDate,myShift){
-  var out={}, myKey=myDate+'|'+myShift;
+  var out=[], myKey=myDate+'|'+myShift, myHoli=isHoliday(myDate);
   app.staff.forEach(function(s){
     if(s.name===app.me) return;
     var theirs=app.byPerson[s.name]||{};
-    var opts=[];
     for(var d in theirs){
       var t=theirs[d], theirKey=d+'|'+t;
       if(!canHold(s.name,myDate,myShift,theirKey)) continue;   // 상대가 내 근무를 받을 수 있나
       if(!canHold(app.me,d,t,myKey)) continue;                 // 내가 그 근무를 받을 수 있나
-      opts.push({
-        date:d, shift:t,
+      var sameShift = (t===myShift);
+      var sameHoli  = (isHoliday(d)===myHoli);
+      out.push({
+        date:d, shift:t, name:s.name,
+        tier: sameShift && sameHoli ? 1 : (sameShift ? 2 : (sameHoli ? 3 : 4)),
         warn: rollingBreak(s.name,myDate,myShift,theirKey) || rollingBreak(app.me,d,t,myKey)
       });
     }
-    opts.sort(function(a,b){ return a.date<b.date?-1:1; });
-    out[s.name]=opts;
   });
   return out;
 }
@@ -386,8 +385,10 @@ function slotHTML(iso,p,opt){
   var shown=who;
   if(opt.onlyMine&&!mine) shown='';
   var cls='slot'+(mine?' me':'')+(shown?'':' empty');
+  if(opt.swap&&mine) cls+=' mine-click';
   if(opt.pickKey===iso+'|'+p.name) cls+=' pick';
-  if(opt.candKeys&&opt.candKeys[iso+'|'+p.name]) cls+=' cand';
+  var tr=opt.tierOf&&opt.tierOf[iso+'|'+p.name];
+  if(tr) cls+=' s'+tr;
   return '<button class="'+cls+'" data-date="'+iso+'" data-shift="'+p.name+'">'
        + '<span class="tag t-'+(mine?'x':p.name)+'">'+p.name+'</span>'
        + '<span class="nm">'+(shown||'·')+'</span></button>';
@@ -427,83 +428,62 @@ function listHTML(opt){
 }
 
 function renderBoard(){
-  var opt={onlyMine:app.onlyMine};
-  document.getElementById('board').innerHTML=
-    app.view==='cal'?calendarHTML(opt):listHTML(opt);
+  document.getElementById('board').innerHTML=render({onlyMine:app.onlyMine});
   document.getElementById('viewToggle').textContent=app.view==='cal'?'목록으로':'캘린더로';
   document.getElementById('onlyMine').setAttribute('aria-pressed',app.onlyMine?'true':'false');
 }
 
 function renderSwap(){
-  var my=document.getElementById('myShifts'),
-      cd=document.getElementById('cands'),
-      st=document.getElementById('swapStep'),
+  var st=document.getElementById('swapStep'),
+      lg=document.getElementById('tierLeg'),
       cal=document.getElementById('swapCal');
 
+  document.getElementById('swapView').textContent=app.view==='cal'?'목록으로':'캘린더로';
+  lg.innerHTML='';
+
   if(!app.me){
-    my.innerHTML='<span class="sub">위에서 본인을 먼저 선택해 주세요.</span>';
-    cd.innerHTML=''; st.textContent=''; cal.innerHTML=''; return;
+    st.innerHTML='위에서 본인을 선택해 주세요.'; cal.innerHTML=''; return;
   }
-  var mine=app.byPerson[app.me]||{};
-  var keys=Object.keys(mine).sort();
-  if(!keys.length){
-    my.innerHTML='<span class="sub">근무표가 아직 없습니다. 관리자 탭에서 임시 스케줄을 만들어 보세요.</span>';
-    cd.innerHTML=''; st.textContent=''; cal.innerHTML=''; return;
+  if(!Object.keys(app.byPerson[app.me]||{}).length){
+    st.innerHTML='아직 배정된 근무가 없습니다. 관리자 탭에서 임시 스케줄을 만들어 보세요.';
+    cal.innerHTML=''; return;
   }
 
-  my.innerHTML=keys.map(function(d){
-    var s=mine[d], k=d+'|'+s;
-    return '<button class="chip" data-key="'+k+'" aria-pressed="'+(app.pick===k)+'">'
-      +'<span class="tag t-'+s+'">'+s+'</span>'+shortDate(d)+'</button>';
-  }).join('');
+  var opt={swap:true};
 
   if(!app.pick){
-    cd.innerHTML='<span class="sub">넘길 근무를 먼저 고르세요.</span>';
-    st.textContent=''; cal.innerHTML=''; return;
+    st.innerHTML='달력에서 <b>내 근무</b>를 누르면 받아올 수 있는 근무가 표시됩니다.';
+    cal.innerHTML=render(opt);
+    return;
   }
 
-  var pk=app.pick.split('|');
-  app.matches=findSwaps(pk[0],pk[1]);
+  var pk=app.pick.split('|'), myHoli=isHoliday(pk[0]);
+  var list=findSwaps(pk[0],pk[1]);
+  var tierOf={}, n=[0,0,0,0,0];
+  list.forEach(function(o){
+    var k=o.date+'|'+o.shift;
+    if(!tierOf[k]||o.tier<tierOf[k]) tierOf[k]=o.tier;
+    n[o.tier]++;
+  });
 
-  var names=app.staff.map(function(s){return s.name;}).filter(function(n){return n!==app.me;});
-  names.sort(function(a,b){ return (app.matches[b]||[]).length-(app.matches[a]||[]).length; });
+  opt.pickKey=app.pick;
+  opt.tierOf=tierOf;
 
-  cd.innerHTML=names.map(function(n){
-    var o=app.matches[n]||[];
-    var warned=o.filter(function(x){return x.warn;}).length;
-    if(!o.length){
-      return '<div class="crow no"><span class="who2">'+n+'</span>'
-        +'<span class="cnt">'+whyNot(n,pk[0],pk[1])+'</span></div>';
-    }
-    return '<button class="crow" data-name="'+n+'" aria-pressed="'+(app.cand===n)+'">'
-      +'<span class="who2">'+n+'</span><span class="cnt">'+o.length+'건 가능</span>'
-      +(warned?'<span class="spacer"></span><span class="warn">주 5회 초과 '+warned+'</span>':'')
-      +'</button>';
-  }).join('');
+  st.innerHTML='<b>'+shortDate(pk[0])+' '+pk[1]+'</b> ('+(myHoli?'휴일':'주중')+') 를 넘깁니다. '
+    +'받아올 수 있는 근무 <b>'+list.length+'개</b>. '
+    +'실제 교대는 근무표 시트에서 진행하세요.';
 
-  var candKeys={};
-  if(app.cand && app.matches[app.cand]){
-    app.matches[app.cand].forEach(function(o){ candKeys[o.date+'|'+o.shift]=1; });
-    st.innerHTML='<b>'+app.cand+'</b> 님의 근무 중 내가 설 수 있는 것을 표시했습니다. '
-      +'실제 교대는 근무표 시트에서 진행하세요.';
-  } else {
-    st.innerHTML='왼쪽에서 상대를 고르면 받아올 수 있는 근무가 표시됩니다.';
-  }
-  cal.innerHTML=calendarHTML({pickKey:app.pick,candKeys:candKeys});
+  lg.innerHTML=
+     '<span class="s1">같은 조건 '+n[1]+'</span>'
+    +'<span class="s2">휴일만 다름 '+n[2]+'</span>'
+    +'<span class="s3">근무만 다름 '+n[3]+'</span>'
+    +'<span class="s4">둘 다 다름 '+n[4]+'</span>';
+
+  cal.innerHTML=render(opt);
 }
 
-/** 후보에서 빠진 이유를 한 줄로 (가장 먼저 걸리는 사유) */
-function whyNot(name,date,shift){
-  if(blocked(name,date,shift)) return '그날 불가 신청';
-  var mine=app.byPerson[name]||{};
-  for(var g=1;g<=2;g++){
-    var pv=mine[shiftDate(date,-g)];
-    if(pv&&(app.transitions[pv]||{})[g].indexOf(shift)<0) return shortDate(shiftDate(date,-g))+' '+pv+' 휴게';
-    var nx=mine[shiftDate(date,g)];
-    if(nx&&(app.transitions[shift]||{})[g].indexOf(nx)<0) return shortDate(shiftDate(date,g))+' '+nx+' 휴게';
-  }
-  return '맞바꿀 근무 없음';
-}
+function render(opt){ return app.view==='cal'?calendarHTML(opt):listHTML(opt); }
+
 
 function renderAdmin(){
   var n=(app.rows||[]).length;
@@ -572,7 +552,7 @@ document.querySelector('.tabs').addEventListener('click',function(e){
 });
 document.getElementById('me').addEventListener('change',function(e){
   app.me=e.target.value; save('me',app.me);
-  app.pick=null; app.cand=null; renderAll();
+  app.pick=null; renderAll();
 });
 document.getElementById('onlyMine').addEventListener('click',function(){
   app.onlyMine=!app.onlyMine; renderBoard();
@@ -584,28 +564,29 @@ document.getElementById('board').addEventListener('click',function(e){
   var b=e.target.closest('.slot'); if(!b) return;
   var who=(app.byDate[b.dataset.date]||{})[b.dataset.shift];
   if(who && who===app.me){
-    app.pick=b.dataset.date+'|'+b.dataset.shift; app.cand=null;
+    app.pick=b.dataset.date+'|'+b.dataset.shift;
     showTab('swap'); renderSwap();
   }
 });
-document.getElementById('myShifts').addEventListener('click',function(e){
-  var b=e.target.closest('.chip'); if(!b) return;
-  app.pick = app.pick===b.dataset.key ? null : b.dataset.key;
-  app.cand=null; renderSwap();
-});
-document.getElementById('cands').addEventListener('click',function(e){
-  var b=e.target.closest('.crow[data-name]'); if(!b) return;
-  app.cand = app.cand===b.dataset.name ? null : b.dataset.name;
+document.getElementById('swapCal').addEventListener('click',function(e){
+  var b=e.target.closest('.slot'); if(!b) return;
+  var d=b.dataset.date, s=b.dataset.shift;
+  if((app.byDate[d]||{})[s]!==app.me) return;      // 내 근무만 선택 가능
+  var k=d+'|'+s;
+  app.pick = app.pick===k ? null : k;
   renderSwap();
 });
+document.getElementById('swapView').addEventListener('click',function(){
+  app.view=app.view==='cal'?'list':'cal'; save('view',app.view); renderAll();
+});
 document.getElementById('swapReset').addEventListener('click',function(){
-  app.pick=null; app.cand=null; renderSwap();
+  app.pick=null; renderSwap();
 });
 document.getElementById('genTemp').addEventListener('click',function(){
   setSchedule(generateTemp()); renderAll();
 });
 document.getElementById('clearSched').addEventListener('click',function(){
-  setSchedule([]); app.pick=null; app.cand=null; renderAll();
+  setSchedule([]); app.pick=null; renderAll();
 });
 
 if(window.innerWidth<640 && load('view',null)===null) app.view='list';
