@@ -110,6 +110,24 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .s3 .nm{color:#5F5426;font-weight:500}
 .s4{background:#E6E4DA;box-shadow:inset 0 0 0 1px #B5B2A4;border-radius:3px}
 .s4 .nm{color:#55534A}
+.pfday{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:5px;min-height:74px;display:flex;flex-direction:column;gap:5px}
+.pfday.holi{background:#FDFBF6;border-color:#EADFC8}
+.pfday.allb{background:#FAE9E1;border-color:#EEC5B2}
+.pfnum{font-size:11px;font-weight:600;color:var(--mid);text-align:left;
+  display:flex;gap:4px;align-items:baseline;border-radius:3px;padding:1px 3px;margin:0 -3px}
+.pfnum:hover{background:var(--rest)}
+.pfnum em{font-style:normal;font-weight:400;font-size:10px;color:#A8431F;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pfday.allb .pfnum{color:#A8431F}
+.pfrow{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-top:auto}
+.pfb{font-size:11px;font-weight:600;padding:3px 0;border-radius:3px;
+  border:1px solid var(--line-2);color:var(--faint);background:var(--card)}
+.pfb:hover{border-color:var(--ink)}
+.pf-b{background:#FAE9E1;border-color:#EEC5B2;color:#A8431F}
+.pf-w{background:#DEF0EB;border-color:#A8D6C8;color:#146653}
+.pfday.allb .pfb{opacity:.35}
+.tierleg .pf-b,.tierleg .pf-w{border:1px solid;font-weight:600}
 .adm{display:flex;flex-direction:column;gap:10px}
 .tbl{overflow-x:auto}
 .tbl table{border-collapse:collapse;width:100%;min-width:520px}
@@ -190,8 +208,19 @@ main{padding:16px;max-width:1120px;margin:0 auto}
   </section>
 
   <section class="panel" data-panel="mine" hidden>
-    <div class="bar"><div class="h">희망 · 불가 일정</div></div>
-    <div class="stub">기존 입력 화면을 이 자리로 옮깁니다.</div>
+    <div class="bar"><div class="h">희망 · 불가 일정</div><div class="spacer"></div>
+      <span class="sub" id="pfInfo"></span>
+      <button class="btn" id="pfSave">저장</button></div>
+    <div class="card">
+      <div class="step">
+        날짜를 누르면 <b>그날 전체 불가</b>, 근무 글자를 누르면 <b>불가 → 희망 → 해제</b> 순으로 바뀝니다.
+      </div>
+      <div class="tierleg" style="margin-bottom:12px">
+        <span class="pf-b">불가</span><span class="pf-w">희망</span>
+        <span style="color:var(--mid)">누르지 않은 칸은 상관없음</span>
+      </div>
+      <div id="pfCal"></div>
+    </div>
   </section>
 
   <section class="panel" data-panel="admin" hidden>
@@ -283,7 +312,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal',
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false,
   pick:null
 };
 
@@ -360,6 +389,7 @@ function ready(){
   if(app.me) sel.value=app.me;
 
   indexSchedule(load('schedule',[]));
+  loadPrefsFor(app.me);
   admOpen(!!load('adm',0));
   showTab(load('tab','board'));
   renderAll();
@@ -457,7 +487,7 @@ function findSwaps(myDate,myShift){
 }
 
 /* ── 렌더 ── */
-function renderAll(){ renderBoard(); renderSwap(); renderAdmin(); }
+function renderAll(){ renderBoard(); renderSwap(); renderPrefs(); if(!document.getElementById('admBody').hidden) renderAdmin(); }
 
 function slotHTML(iso,p,opt){
   opt=opt||{};
@@ -578,7 +608,75 @@ function renderSwap(){
 function render(opt){ return app.view==='cal'?calendarHTML(opt):listHTML(opt); }
 
 
-/* ── 관리자 ───────────────────────────────── */
+/* ── 희망 · 불가 입력 ─────────────────────── */
+function loadPrefsFor(name){
+  app.pf={}; app.pfDirty=false;
+  var src=app.prefIdx[name]||{};
+  for(var d in src){
+    var p=src[d], o={all:!!p.blockAll, s:{}};
+    (p.block||[]).forEach(function(k){ o.s[k]='b'; });
+    (p.wish ||[]).forEach(function(k){ o.s[k]='w'; });
+    app.pf[d]=o;
+  }
+}
+
+function pfTokens(o){
+  if(!o) return [];
+  if(o.all) return ['block_all'];
+  var t=[];
+  for(var k in o.s){
+    if(o.s[k]==='b') t.push('block_'+k);
+    else if(o.s[k]==='w') t.push('wish_'+k);
+  }
+  return t;
+}
+
+function pfList(){
+  return Object.keys(app.pf).sort().map(function(d){
+    return {date:d, prefType:pfTokens(app.pf[d])};
+  }).filter(function(x){ return x.prefType.length; });
+}
+
+function renderPrefs(){
+  var cal=document.getElementById('pfCal'), info=document.getElementById('pfInfo');
+  var btn=document.getElementById('pfSave');
+  if(!app.me){
+    cal.innerHTML='<div class="sub">위에서 본인을 선택해 주세요.</div>';
+    info.textContent=''; btn.disabled=true; return;
+  }
+  btn.disabled=false;
+  var n=pfList().length;
+  info.innerHTML=app.me+' · 지정한 날 '+n+'일'
+    +(app.pfDirty?' <span class="bad">저장 안 됨</span>':'');
+
+  var h='<div class="calwrap"><div class="cal"><div class="dow">'
+    +'<div>월</div><div>화</div><div>수</div><div>목</div><div>금</div>'
+    +'<div class="sat">토</div><div class="sun">일</div></div>';
+  for(var w=0; w*7<app.dates.length; w++){
+    h+='<div class="week">';
+    for(var i=0;i<7;i++){
+      var iso=app.dates[w*7+i];
+      if(!iso){ h+='<div></div>'; continue; }
+      var o=app.pf[iso]||{all:false,s:{}}, hn=app.holidays[iso]||'';
+      h+='<div class="pfday'+(isHoliday(iso)?' holi':'')+(o.all?' allb':'')+'">'
+        +'<button class="pfnum" data-pd="'+iso+'"><span>'+parseISO(iso).getDate()+'</span>'
+        +(hn?'<em>'+hn+'</em>':'')+'</button><div class="pfrow">';
+      app.patterns.forEach(function(p){
+        var st=o.s[p.name];
+        h+='<button class="pfb'+(st==='b'?' pf-b':st==='w'?' pf-w':'')
+          +'" data-pd="'+iso+'" data-ps="'+p.name+'">'+p.name+'</button>';
+      });
+      h+='</div></div>';
+    }
+    h+='</div>';
+  }
+  cal.innerHTML=h+'</div></div>';
+}
+
+function pfCell(d){
+  if(!app.pf[d]) app.pf[d]={all:false,s:{}};
+  return app.pf[d];
+}
 var adm = { pat:[], stf:[], hol:[] };
 
 var COLS = {
@@ -813,7 +911,7 @@ document.querySelector('.tabs').addEventListener('click',function(e){
 });
 document.getElementById('me').addEventListener('change',function(e){
   app.me=e.target.value; save('me',app.me);
-  app.pick=null; renderAll();
+  app.pick=null; loadPrefsFor(app.me); renderAll();
 });
 document.getElementById('onlyMine').addEventListener('click',function(){
   app.onlyMine=!app.onlyMine; renderBoard();
@@ -843,6 +941,48 @@ document.getElementById('swapView').addEventListener('click',function(){
 document.getElementById('swapReset').addEventListener('click',function(){
   app.pick=null; renderSwap();
 });
+/* ── 희망·불가 이벤트 ── */
+document.getElementById('pfCal').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-pd]'); if(!b) return;
+  var d=b.dataset.pd, o=pfCell(d);
+  if(b.dataset.ps){
+    if(o.all) return;                                   // 전체 불가일 땐 개별 조작 없음
+    var cur=o.s[b.dataset.ps];
+    if(!cur) o.s[b.dataset.ps]='b';
+    else if(cur==='b') o.s[b.dataset.ps]='w';
+    else delete o.s[b.dataset.ps];
+  } else {
+    o.all=!o.all;
+    if(o.all) o.s={};
+  }
+  if(!o.all && !Object.keys(o.s).length) delete app.pf[d];
+  app.pfDirty=true; renderPrefs();
+});
+
+document.getElementById('pfSave').addEventListener('click',function(){
+  var btn=this, info=document.getElementById('pfInfo');
+  btn.disabled=true; info.textContent='저장 중…';
+  apiPost('savePrefs',{name:app.me, data:pfList()}).then(function(r){
+    if(!r.ok) throw new Error(r.error||'저장 실패');
+    app.pfDirty=false;
+    app.prefIdx[app.me]={};
+    pfList().forEach(function(x){
+      var o=app.pf[x.date];
+      app.prefIdx[app.me][x.date]={
+        name:app.me, date:x.date, tokens:x.prefType,
+        blockAll:!!o.all, wishAll:false,
+        block:Object.keys(o.s).filter(function(k){return o.s[k]==='b';}),
+        wish: Object.keys(o.s).filter(function(k){return o.s[k]==='w';})
+      };
+    });
+    btn.disabled=false; renderPrefs();
+    info.innerHTML=app.me+' · '+r.saved+'일 저장됨 <span class="ok">완료</span>';
+  }).catch(function(e){
+    btn.disabled=false;
+    info.innerHTML='<span class="bad">'+e.message+'</span>';
+  });
+});
+
 /* ── 관리자 이벤트 ── */
 function admOpen(on){
   document.getElementById('admLock').hidden=on;
