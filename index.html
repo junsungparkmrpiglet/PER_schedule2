@@ -943,6 +943,48 @@ document.getElementById('swapCal').addEventListener('click',function(e){
 });
 
 
+/* ── 희망·불가 이벤트 ── */
+document.getElementById('pfCal').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-pd]'); if(!b) return;
+  var d=b.dataset.pd, o=pfCell(d);
+  if(b.dataset.ps){
+    if(o.all) return;                                   // 전체 불가일 땐 개별 조작 없음
+    var cur=o.s[b.dataset.ps];
+    if(!cur) o.s[b.dataset.ps]='b';
+    else if(cur==='b') o.s[b.dataset.ps]='w';
+    else delete o.s[b.dataset.ps];
+  } else {
+    o.all=!o.all;
+    if(o.all) o.s={};
+  }
+  if(!o.all && !Object.keys(o.s).length) delete app.pf[d];
+  app.pfDirty=true; renderPrefs();
+});
+
+document.getElementById('pfSave').addEventListener('click',function(){
+  var btn=this, info=document.getElementById('pfInfo');
+  btn.disabled=true; info.textContent='저장 중…';
+  apiPost('savePrefs',{name:app.me, data:pfList()}).then(function(r){
+    if(!r.ok) throw new Error(r.error||'저장 실패');
+    app.pfDirty=false;
+    app.prefIdx[app.me]={};
+    pfList().forEach(function(x){
+      var o=app.pf[x.date];
+      app.prefIdx[app.me][x.date]={
+        name:app.me, date:x.date, tokens:x.prefType,
+        blockAll:!!o.all, wishAll:false,
+        block:Object.keys(o.s).filter(function(k){return o.s[k]==='b';}),
+        wish: Object.keys(o.s).filter(function(k){return o.s[k]==='w';})
+      };
+    });
+    btn.disabled=false; renderPrefs();
+    info.innerHTML=app.me+' · '+r.saved+'일 저장됨 <span class="ok">완료</span>';
+  }).catch(function(e){
+    btn.disabled=false;
+    info.innerHTML='<span class="bad">'+e.message+'</span>';
+  });
+});
+
 /* ── 관리자 이벤트 ── */
 function admOpen(on){
   document.getElementById('admLock').hidden=on;
