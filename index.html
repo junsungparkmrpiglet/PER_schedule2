@@ -208,6 +208,8 @@ main{padding:16px;max-width:1120px;margin:0 auto}
       <div class="h">8주 근무표</div><div class="spacer"></div>
       <button class="btn" id="onlyMine" aria-pressed="false">내 근무만</button>
       <button class="btn" id="viewToggle">목록으로</button>
+      <button class="btn" id="reload">새로고침</button>
+      <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트에서 교체</a>
     </div>
     <div id="board"></div>
     <div class="legend">
@@ -291,17 +293,15 @@ main{padding:16px;max-width:1120px;margin:0 auto}
         </div>
 
         <div class="card">
-          <div class="h2">근무표 불러오기</div>
-          <div class="bar" style="margin:0 0 8px">
-            <input type="file" id="csvFile" accept=".csv,text/csv" style="font-size:12px">
-            <button class="btn" id="genTemp">임시로 만들기</button>
-            <button class="btn" id="clearSched">지우기</button>
-            <span class="sub" id="schedInfo"></span>
+          <div class="h2">근무표</div>
+          <div class="sub" id="schedInfo"></div>
+          <div class="bar" style="margin:10px 0 0">
+            <a class="btn" id="sheetLink2" href="#" target="_blank" rel="noopener">근무표 시트 열기</a>
+            <button class="btn" id="reload2">다시 읽기</button>
           </div>
-          <div id="csvOut" class="sub"></div>
           <div class="sub" style="margin-top:8px">
-            Colab 결과 CSV 를 올리세요. <code>date,shift,name</code> 형식과
-            날짜별로 근무가 열로 늘어선 형식 모두 읽습니다.
+            Colab 을 실행하면 <b>근무표</b> 시트에 자동으로 기록됩니다.
+            교체는 그 시트에서 이름 셀 두 개를 맞바꾸시면 되고, 앱은 시트를 읽어 보여줍니다.
           </div>
         </div>
       </div>
@@ -317,7 +317,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false,
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false, schedUrl:'', schedWarn:[],
   pick:null
 };
 
@@ -341,7 +341,7 @@ function apiGet(action,params){
 }
 
 /* ── 부팅 ── */
-function boot(){
+function boot(done){
   var q=new URLSearchParams(location.search);
   if(q.get('api')) API_URL=q.get('api');
   app.me=load('me',''); app.view=load('view','cal');
@@ -355,6 +355,10 @@ function boot(){
     app.staff=res.staff||[];
     app.pmap={}; app.patterns.forEach(function(p){ app.pmap[p.name]=p; });
     app.holSrc=res.holidaySource||''; app.holidays={}; (res.holidays||[]).forEach(function(h){ app.holidays[h.date]=h.name; });
+
+    app.schedUrl=res.scheduleUrl||'';
+    app.schedWarn=res.scheduleWarn||[];
+    indexSchedule(res.schedule||[]);
 
     app.prefIdx={};
     (res.prefs||[]).forEach(function(p){
@@ -370,8 +374,10 @@ function boot(){
       app.dateIdx[iso]=i; app.dates.push(iso);
     }
     ready();
+    if(done) done();
   }).catch(function(err){
     notice('불러오지 못했습니다', err.message, true);
+    if(done) done();
   });
 }
 
@@ -382,10 +388,13 @@ function notice(t,b,e){
 
 function ready(){
   document.getElementById('boot').innerHTML='';
+  var lk=document.getElementById('sheetLink');
+  if(app.schedUrl){ lk.href=app.schedUrl; lk.hidden=false; }
   document.getElementById('period').textContent=
     ' '+app.dates[0]+' → '+app.dates[app.dates.length-1];
 
   var sel=document.getElementById('me');
+  sel.innerHTML='<option value="">선택</option>';
   app.staff.forEach(function(s){
     var o=document.createElement('option');
     o.value=s.name; o.textContent=s.name+(s.role==='진료교수'?' (진료교수)':'');
@@ -393,7 +402,6 @@ function ready(){
   });
   if(app.me) sel.value=app.me;
 
-  indexSchedule(load('schedule',[]));
   loadPrefsFor(app.me);
   admOpen(!!load('adm',0));
   showTab(load('tab','mine'));
@@ -411,7 +419,7 @@ function indexSchedule(rows){
     app.byPerson[r.name][r.date]=r.shift;
   });
 }
-function setSchedule(rows){ indexSchedule(rows); save('schedule',rows); }
+function setSchedule(rows){ indexSchedule(rows); }
 
 /* ── 규칙 판정 ──────────────────────────────
    blocked : 개인 불가일정
@@ -713,8 +721,14 @@ function tblRender(tab){
 }
 
 function renderAdmin(){
-  document.getElementById('schedInfo').textContent=
-    (app.rows||[]).length? app.rows.length+'건 배정됨' : '근무표 비어 있음';
+  var n=(app.rows||[]).length;
+  document.getElementById('schedInfo').innerHTML= n
+    ? n+'건 · '+Object.keys(app.byPerson).length+'명'
+      +(app.schedWarn.length?' <span class="bad">중복 '+app.schedWarn.length+'건: '
+        +app.schedWarn.slice(0,3).join(', ')+'</span>':' <span class="ok">이상 없음</span>')
+    : '<span class="bad">근무표 시트가 비어 있습니다. Colab 을 실행해 주세요.</span>';
+  var l2=document.getElementById('sheetLink2');
+  if(app.schedUrl) l2.href=app.schedUrl;
 
   adm.pat=app.patterns.map(function(p){
     return {'패턴명':p.name,'시작':hhmm(p.start),'종료':hhmm(p.end),
@@ -778,129 +792,6 @@ function admSaveTable(tab){
   }).catch(function(e){ admMsg(e.message,'bad'); });
 }
 
-/* ── CSV 읽기 ── */
-function parseCSV(text){
-  text=text.replace(/^\uFEFF/,'');
-  return text.split(/\r?\n/).filter(function(l){return l.trim();})
-    .map(function(l){
-      var out=[],cur='',q=false;
-      for(var i=0;i<l.length;i++){
-        var c=l[i];
-        if(q){ if(c==='"'){ if(l[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
-        else if(c==='"') q=true;
-        else if(c===','||c==='\t') { out.push(cur); cur=''; }
-        else cur+=c;
-      }
-      out.push(cur);
-      return out.map(function(x){return x.trim();});
-    });
-}
-
-function csvToRows(text){
-  var g=parseCSV(text);
-  if(g.length<2) throw new Error('내용이 없습니다');
-  var head=g[0].map(function(h){return h.toLowerCase();});
-  var names=app.patterns.map(function(p){return p.name;});
-
-  var iD=head.findIndex(function(h){return h==='date'||h==='날짜';});
-  var iS=head.findIndex(function(h){return h==='shift'||h==='근무';});
-  var iN=head.findIndex(function(h){return h==='name'||h==='이름'||h==='staff';});
-
-  var rows=[];
-  if(iD>=0&&iS>=0&&iN>=0){                       // 세로형: date, shift, name
-    for(var r=1;r<g.length;r++){
-      var d=normDate(g[r][iD]), s=g[r][iS], n=g[r][iN];
-      if(d&&s&&n) rows.push({date:d,shift:s,name:n});
-    }
-  } else if(iD>=0){                              // 가로형: date + 근무별 열
-    var cols=[];
-    g[0].forEach(function(h,i){ if(names.indexOf(h.trim())>=0) cols.push([i,h.trim()]); });
-    if(!cols.length) throw new Error('근무 열('+names.join(' ')+')을 찾지 못했습니다');
-    for(var r2=1;r2<g.length;r2++){
-      var dd=normDate(g[r2][iD]); if(!dd) continue;
-      cols.forEach(function(c){
-        var v=g[r2][c[0]]; if(v) rows.push({date:dd,shift:c[1],name:v});
-      });
-    }
-  } else throw new Error('date(날짜) 열을 찾지 못했습니다');
-  return rows;
-}
-
-function normDate(v){
-  var m=String(v||'').trim().match(/^(\d{4})[-.\/]\s*(\d{1,2})[-.\/]\s*(\d{1,2})/);
-  return m? m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2) : '';
-}
-
-function checkRows(rows){
-  var names={}; app.staff.forEach(function(s){names[s.name]=1;});
-  var shifts={}; app.patterns.forEach(function(p){shifts[p.name]=1;});
-  var bad={date:0,name:{},shift:{}}, inRange=0;
-  rows.forEach(function(r){
-    if(app.dateIdx[r.date]===undefined) bad.date++; else inRange++;
-    if(!names[r.name]) bad.name[r.name]=1;
-    if(!shifts[r.shift]) bad.shift[r.shift]=1;
-  });
-  // 규칙 위반
-  var per={};
-  rows.forEach(function(r){ (per[r.name]=per[r.name]||{})[r.date]=r.shift; });
-  var v=[];
-  for(var n in per){
-    for(var d in per[n]){
-      for(var gp=1;gp<=2;gp++){
-        var nx=per[n][shiftDate(d,gp)];
-        if(nx&&((app.transitions[per[n][d]]||{})[gp]||[]).indexOf(nx)<0)
-          v.push(n+' '+shortDate(d)+' '+per[n][d]+' → '+shortDate(shiftDate(d,gp))+' '+nx);
-      }
-    }
-  }
-  return {inRange:inRange, bad:bad, viol:v};
-}
-
-/* ── 임시 스케줄 (확인용) ── */
-function generateTemp(){
-  var rows=[], byPerson={}, byDate={};
-  var specs=app.staff.filter(function(s){return s.role==='전문의';});
-  var profs=app.staff.filter(function(s){return s.role==='진료교수';});
-  var count={}; app.staff.forEach(function(s){count[s.name]=0;});
-
-  function ok(name,date,shift){
-    var p=(app.prefIdx[name]||{})[date];
-    if(p&&(p.blockAll||(p.block||[]).indexOf(shift)>=0)) return false;
-    var mine=byPerson[name]||{};
-    if(mine[date]) return false;
-    for(var g=1;g<=2;g++){
-      var pv=mine[shiftDate(date,-g)];
-      if(pv&&(app.transitions[pv]||{})[g].indexOf(shift)<0) return false;
-      var nx=mine[shiftDate(date,g)];
-      if(nx&&(app.transitions[shift]||{})[g].indexOf(nx)<0) return false;
-    }
-    return true;
-  }
-  function put(name,date,shift){
-    rows.push({date:date,shift:shift,name:name});
-    if(!byPerson[name]) byPerson[name]={};
-    byPerson[name][date]=shift;
-    if(!byDate[date]) byDate[date]={};
-    byDate[date][shift]=name;
-    count[name]++;
-  }
-
-  app.dates.forEach(function(iso){
-    var wd=parseISO(iso).getDay();
-    // 진료교수: 화(2) 목(4) 토(6) E 우선
-    profs.forEach(function(pf){
-      if([2,4,6].indexOf(wd)>=0 && ok(pf.name,iso,'E')) put(pf.name,iso,'E');
-    });
-    app.patterns.forEach(function(p){
-      if((byDate[iso]||{})[p.name]) return;
-      var pool=specs.filter(function(s){ return ok(s.name,iso,p.name); });
-      if(!pool.length) return;
-      pool.sort(function(a,b){ return count[a.name]-count[b.name]; });
-      put(pool[0].name,iso,p.name);
-    });
-  });
-  return rows;
-}
 
 /* ── 탭 ── */
 function showTab(name){
@@ -942,6 +833,14 @@ document.getElementById('swapCal').addEventListener('click',function(e){
   renderSwap();
 });
 
+
+function reloadAll(){
+  var b=document.getElementById('reload');
+  b.disabled=true; b.textContent='읽는 중…';
+  boot(function(){ b.disabled=false; b.textContent='새로고침'; });
+}
+document.getElementById('reload').addEventListener('click',reloadAll);
+document.getElementById('reload2').addEventListener('click',reloadAll);
 
 /* ── 희망·불가 이벤트 ── */
 document.getElementById('pfCal').addEventListener('click',function(e){
@@ -1040,37 +939,6 @@ document.getElementById('holSync').addEventListener('click',function(){
     }).catch(function(e){ admMsg(e.message,'bad'); });
 });
 
-document.getElementById('csvFile').addEventListener('change',function(e){
-  var f=e.target.files[0]; if(!f) return;
-  var out=document.getElementById('csvOut');
-  var fr=new FileReader();
-  fr.onload=function(){
-    try{
-      var rows=csvToRows(fr.result);
-      var ck=checkRows(rows);
-      var bn=Object.keys(ck.bad.name), bs=Object.keys(ck.bad.shift);
-      var msg='<b>'+rows.length+'행</b> 읽음 · 기간 안 '+ck.inRange+'건';
-      if(ck.bad.date) msg+=' · <span class="bad">기간 밖 '+ck.bad.date+'건</span>';
-      if(bn.length) msg+=' · <span class="bad">모르는 이름: '+bn.join(', ')+'</span>';
-      if(bs.length) msg+=' · <span class="bad">모르는 근무: '+bs.join(', ')+'</span>';
-      if(ck.viol.length) msg+='<br><span class="bad">휴게시간 위반 '+ck.viol.length+'건</span> — '
-        +ck.viol.slice(0,4).join(' / ')+(ck.viol.length>4?' 외':'');
-      else msg+='<br><span class="ok">휴게시간 위반 없음</span>';
-      out.innerHTML=msg;
-      setSchedule(rows.filter(function(r){return app.dateIdx[r.date]!==undefined;}));
-      app.pick=null; renderAll();
-    }catch(err){ out.innerHTML='<span class="bad">'+err.message+'</span>'; }
-  };
-  fr.readAsText(f,'utf-8');
-});
-document.getElementById('genTemp').addEventListener('click',function(){
-  setSchedule(generateTemp());
-  document.getElementById('csvOut').innerHTML='';
-  app.pick=null; renderAll();
-});
-document.getElementById('clearSched').addEventListener('click',function(){
-  setSchedule([]); app.pick=null; renderAll();
-});
 
 if(window.innerWidth<640 && load('view',null)===null) app.view='list';
 boot();
