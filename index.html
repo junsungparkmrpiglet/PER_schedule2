@@ -317,7 +317,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false, schedUrl:'', schedWarn:[],
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -358,6 +358,7 @@ function boot(done){
 
     app.schedUrl=res.scheduleUrl||'';
     app.schedWarn=res.scheduleWarn||[];
+    app.schedNote=res.scheduleNote||'';
     indexSchedule(res.schedule||[]);
 
     app.prefIdx={};
@@ -726,7 +727,7 @@ function renderAdmin(){
     ? n+'건 · '+Object.keys(app.byPerson).length+'명'
       +(app.schedWarn.length?' <span class="bad">중복 '+app.schedWarn.length+'건: '
         +app.schedWarn.slice(0,3).join(', ')+'</span>':' <span class="ok">이상 없음</span>')
-    : '<span class="bad">근무표 시트가 비어 있습니다. Colab 을 실행해 주세요.</span>';
+    : '<span class="bad">'+(app.schedNote||'근무표가 비어 있습니다. Colab 을 실행해 주세요.')+'</span>';
   var l2=document.getElementById('sheetLink2');
   if(app.schedUrl) l2.href=app.schedUrl;
 
