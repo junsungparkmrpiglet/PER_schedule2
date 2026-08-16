@@ -192,6 +192,7 @@ main{padding:16px;max-width:1120px;margin:0 auto}
       <span class="sub" id="pfInfo"></span>
       <button class="btn" id="pfSave">저장</button></div>
     <div class="card">
+      <div class="step" id="pfRange"></div>
       <div class="step">
         날짜를 누르면 <b>그날 전체 불가</b>, 근무 글자를 누르면 <b>불가 → 희망 → 해제</b> 순으로 바뀝니다.
       </div>
@@ -317,7 +318,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -329,6 +330,12 @@ function parseISO(s){ var p=String(s).split('-'); return new Date(+p[0],+p[1]-1,
 function fmtISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 function addDays(d,n){ var x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
 function shiftDate(iso,n){ return fmtISO(addDays(parseISO(iso),n)); }
+function mondayOf(iso){ var d=parseISO(iso); return fmtISO(addDays(d, -((d.getDay()+6)%7))); }
+function sundayOf(iso){ var d=parseISO(iso); return fmtISO(addDays(d, 6-((d.getDay()+6)%7))); }
+function rangeOf(a,b){ var out=[],d=parseISO(a),e=parseISO(b);
+  while(d<=e){ out.push(fmtISO(d)); d=addDays(d,1); } return out; }
+function todayISO(){ var n=new Date();
+  return n.getFullYear()+'-'+('0'+(n.getMonth()+1)).slice(-2)+'-'+('0'+n.getDate()).slice(-2); }
 function isHoliday(iso){ var w=parseISO(iso).getDay(); return w===0||w===6||!!app.holidays[iso]; }
 var DOWK=['일','월','화','수','목','금','토'];
 function shortDate(iso){ var d=parseISO(iso); return (d.getMonth()+1)+'/'+d.getDate()+' ('+DOWK[d.getDay()]+')'; }
@@ -367,12 +374,19 @@ function boot(done){
       app.prefIdx[p.name][p.date]=p;
     });
 
-    var start=app.config['시작일'], weeks=Number(app.config['주수']||8);
-    if(!start) throw new Error('설정 시트에서 시작일을 찾지 못했습니다');
+    // 희망·불가 입력 기간 (설정 시트 기준)
+    var pstart=app.config['시작일'], weeks=Number(app.config['주수']||8);
+    app.pfDates = pstart ? rangeOf(pstart, fmtISO(addDays(parseISO(pstart), weeks*7-1))) : [];
+
+    // 근무표 표시 기간: 오늘이 속한 주 ~ 마지막 배정일
+    var ds=Object.keys(app.byDate).sort();
     app.dates=[]; app.dateIdx={};
-    for(var i=0;i<weeks*7;i++){
-      var iso=fmtISO(addDays(parseISO(start),i));
-      app.dateIdx[iso]=i; app.dates.push(iso);
+    if(ds.length){
+      var from=mondayOf(todayISO());
+      if(from < mondayOf(ds[0])) from = mondayOf(ds[0]);
+      if(from > ds[ds.length-1]) from = mondayOf(ds[0]);      // 전부 과거면 전체를 보여줌
+      app.dates=rangeOf(from, sundayOf(ds[ds.length-1]));
+      app.dates.forEach(function(d,i){ app.dateIdx[d]=i; });
     }
     ready();
     if(done) done();
@@ -391,8 +405,9 @@ function ready(){
   document.getElementById('boot').innerHTML='';
   var lk=document.getElementById('sheetLink');
   if(app.schedUrl){ lk.href=app.schedUrl; lk.hidden=false; }
-  document.getElementById('period').textContent=
-    ' '+app.dates[0]+' → '+app.dates[app.dates.length-1];
+  document.getElementById('period').textContent= app.dates.length
+    ? ' '+app.dates[0]+' → '+app.dates[app.dates.length-1]+' ('+(app.dates.length/7)+'주)'
+    : ' 근무표 없음';
 
   var sel=document.getElementById('me');
   sel.innerHTML='<option value="">선택</option>';
@@ -486,6 +501,7 @@ function findSwaps(myDate,myShift){
     var theirs=app.byPerson[s.name]||{};
     for(var d in theirs){
       var t=theirs[d], theirKey=d+'|'+t;
+      if(d < todayISO()) continue;                             // 지난 근무는 제외
       if(!canHold(s.name,myDate,myShift,theirKey)) continue;   // 상대가 내 근무를 받을 수 있나
       if(!canHold(app.me,d,t,myKey)) continue;                 // 내가 그 근무를 받을 수 있나
       var sameShift = (t===myShift);
@@ -554,6 +570,12 @@ function listHTML(opt){
 }
 
 function renderBoard(){
+  if(!app.dates.length){
+    document.getElementById('board').innerHTML=
+      '<div class="notice"><strong>근무표가 없습니다</strong><br>'
+      +'Colab 을 실행해 근무표 시트를 채워 주세요.</div>';
+    return;
+  }
   document.getElementById('board').innerHTML=render({onlyMine:app.onlyMine});
   document.getElementById('viewToggle').textContent=app.view==='cal'?'목록으로':'캘린더로';
   document.getElementById('onlyMine').setAttribute('aria-pressed',app.onlyMine?'true':'false');
@@ -570,6 +592,7 @@ function renderSwap(){
   if(!app.me){
     st.innerHTML='위에서 본인을 선택해 주세요.'; cal.innerHTML=''; return;
   }
+  if(!app.dates.length){ st.innerHTML='근무표가 없습니다.'; cal.innerHTML=''; return; }
   if(!Object.keys(app.byPerson[app.me]||{}).length){
     st.innerHTML='아직 배정된 근무가 없습니다. 관리자 탭에서 임시 스케줄을 만들어 보세요.';
     cal.innerHTML=''; return;
@@ -660,6 +683,9 @@ function renderPrefs(){
     info.textContent=''; btn.disabled=true; return;
   }
   btn.disabled=false;
+  document.getElementById('pfRange').innerHTML= app.pfDates.length
+    ? '다음 배정 기간 <b>'+app.pfDates[0]+' ~ '+app.pfDates[app.pfDates.length-1]+'</b> 입니다.'
+    : '';
   var n=pfList().length;
   info.innerHTML=app.me+' · 지정한 날 '+n+'일'
     +(app.pfDirty?' <span class="bad">저장 안 됨</span>':'');
@@ -667,10 +693,11 @@ function renderPrefs(){
   var h='<div class="calwrap"><div class="cal"><div class="dow">'
     +'<div>월</div><div>화</div><div>수</div><div>목</div><div>금</div>'
     +'<div class="sat">토</div><div class="sun">일</div></div>';
-  for(var w=0; w*7<app.dates.length; w++){
+  var PD=app.pfDates;
+  for(var w=0; w*7<PD.length; w++){
     h+='<div class="week">';
     for(var i=0;i<7;i++){
-      var iso=app.dates[w*7+i];
+      var iso=PD[w*7+i];
       if(!iso){ h+='<div></div>'; continue; }
       var o=app.pf[iso]||{all:false,s:{}}, hn=app.holidays[iso]||'';
       h+='<div class="pfday'+(isHoliday(iso)?' holi':'')+(o.all?' allb':'')+'">'
@@ -829,6 +856,7 @@ document.getElementById('swapCal').addEventListener('click',function(e){
   var b=e.target.closest('.slot'); if(!b) return;
   var d=b.dataset.date, s=b.dataset.shift;
   if((app.byDate[d]||{})[s]!==app.me) return;      // 내 근무만 선택 가능
+  if(d < todayISO()) return;                       // 지난 날짜는 교체 대상 아님
   var k=d+'|'+s;
   app.pick = app.pick===k ? null : k;
   renderSwap();
