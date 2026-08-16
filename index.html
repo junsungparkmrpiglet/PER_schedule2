@@ -65,6 +65,8 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .day{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:5px 5px 6px;min-height:96px}
 .day.holi{background:#FDFBF6;border-color:#EADFC8}
 .dnum{font-size:11px;font-weight:600;color:var(--mid);display:flex;gap:5px;align-items:baseline;margin-bottom:4px}
+.dnum .mo{color:var(--ink);font-weight:700}
+.pfnum .mo{color:var(--ink);font-weight:700}
 .dnum .hname{font-weight:400;font-size:10px;color:#A8431F;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slot{display:flex;align-items:center;gap:4px;width:100%;text-align:left;
   font-size:11.5px;line-height:1.45;border-radius:3px;padding:1px 3px;margin:0 -3px}
@@ -336,6 +338,12 @@ function rangeOf(a,b){ var out=[],d=parseISO(a),e=parseISO(b);
   while(d<=e){ out.push(fmtISO(d)); d=addDays(d,1); } return out; }
 function todayISO(){ var n=new Date();
   return n.getFullYear()+'-'+('0'+(n.getMonth()+1)).slice(-2)+'-'+('0'+n.getDate()).slice(-2); }
+function dayLabel(iso,i){
+  var d=parseISO(iso);
+  return (i%7===0 || d.getDate()===1)
+    ? '<b class="mo">'+(d.getMonth()+1)+'/</b>'+d.getDate()
+    : String(d.getDate());
+}
 function isHoliday(iso){ var w=parseISO(iso).getDay(); return w===0||w===6||!!app.holidays[iso]; }
 var DOWK=['일','월','화','수','목','금','토'];
 function shortDate(iso){ var d=parseISO(iso); return (d.getMonth()+1)+'/'+d.getDate()+' ('+DOWK[d.getDay()]+')'; }
@@ -547,7 +555,7 @@ function calendarHTML(opt){
       if(!iso){ h+='<div></div>'; continue; }
       var hn=app.holidays[iso]||'';
       h+='<div class="day'+(isHoliday(iso)?' holi':'')+(opt.onlyMine?' dim':'')+'">'
-        +'<div class="dnum"><span>'+parseISO(iso).getDate()+'</span>'
+        +'<div class="dnum"><span>'+dayLabel(iso,w*7+i)+'</span>'
         +(hn?'<span class="hname">'+hn+'</span>':'')+'</div>';
       app.patterns.forEach(function(p){ h+=slotHTML(iso,p,opt); });
       h+='</div>';
@@ -701,7 +709,7 @@ function renderPrefs(){
       if(!iso){ h+='<div></div>'; continue; }
       var o=app.pf[iso]||{all:false,s:{}}, hn=app.holidays[iso]||'';
       h+='<div class="pfday'+(isHoliday(iso)?' holi':'')+(o.all?' allb':'')+'">'
-        +'<button class="pfnum" data-pd="'+iso+'"><span>'+parseISO(iso).getDate()+'</span>'
+        +'<button class="pfnum" data-pd="'+iso+'"><span>'+dayLabel(iso,w*7+i)+'</span>'
         +'<b class="pfall">전체</b>'+(hn?'<em>'+hn+'</em>':'')+'</button><div class="pfrow">';
       app.patterns.forEach(function(p){
         var st=o.s[p.name];
