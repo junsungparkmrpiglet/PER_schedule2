@@ -93,6 +93,21 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--mid);margin-top:10px}
 .legend b{font-weight:500;color:var(--ink)}
 #swapStep:empty,#tierLeg:empty{display:none}
+
+/* 근무통계 */
+.stat table{border-collapse:collapse;width:100%;min-width:440px}
+.stat th{font-size:11px;font-weight:500;color:var(--mid);text-align:right;
+  padding:5px 9px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+.stat td{font-size:12.5px;text-align:right;padding:4px 9px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+.stat th:first-child,.stat td:first-child{text-align:left}
+.stat .meRow td{background:var(--rest);font-weight:600}
+.stat .zero{color:var(--faint)}
+.stat .prole{font-size:10.5px;color:var(--faint);font-weight:400;margin-left:4px}
+.stat .unk{color:#A8431F;font-weight:600;margin-left:2px}
+.stat tr.diff td{border-top:2px solid var(--line-2);border-bottom:none;
+  font-size:12px;color:var(--mid);padding-top:6px}
+.stat tr.diff td b{font-weight:600}
 .dim .slot.s1 .nm{color:#3D2E00}.dim .slot.s2 .nm{color:#5C4700}
 .dim .slot.s3 .nm{color:#5F5426}.dim .slot.s4 .nm{color:#55534A}
 
@@ -182,6 +197,9 @@ main{padding:16px;max-width:1120px;margin:0 auto}
   .pfall{font-size:9px;padding:0 3px}
   .legend{gap:8px;font-size:10.5px}
   .tierleg{gap:4px;font-size:10.5px}
+  .stat table{min-width:0}
+  .stat th{padding:4px 5px;font-size:10px}
+  .stat td{padding:3px 5px;font-size:11.5px}
 }
 </style>
 </head>
@@ -228,6 +246,7 @@ main{padding:16px;max-width:1120px;margin:0 auto}
       <div class="h">근무표</div><div class="spacer"></div>
       <button class="btn" id="reload">새로고침</button>
       <button class="btn" id="onlyMine" aria-pressed="false">내 근무만</button>
+      <button class="btn" id="statToggle" aria-pressed="false">근무통계</button>
       <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트에서 교체</a>
     </div>
     <div class="step" id="swapStep"></div>
@@ -327,7 +346,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
+  me:'', onlyMine:false, stats:false, pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -586,6 +605,10 @@ function renderBoard(){
     return;
   }
   document.getElementById('onlyMine').setAttribute('aria-pressed',app.onlyMine?'true':'false');
+  document.getElementById('statToggle').setAttribute('aria-pressed',app.stats?'true':'false');
+  document.getElementById('onlyMine').disabled=!!app.stats;
+
+  if(app.stats){ brd.innerHTML=statsHTML(); return; }
 
   // 새로고침 등으로 선택한 근무가 더 이상 내 것이 아니면 해제
   if(app.pick){
@@ -642,6 +665,74 @@ function renderBoard(){
 
   brd.innerHTML=calendarHTML(opt);
   fitCals();
+}
+
+/* ── 근무통계: 근무표의 마지막 주기(설정 주수, 기본 8주)를 시트 기준으로 집계 ── */
+function statsHTML(){
+  var ds=Object.keys(app.byDate).sort();
+  var weeks=Number(app.config['주수']||8);
+  var end=sundayOf(ds[ds.length-1]);
+  var start=shiftDate(end,-(weeks*7-1));
+  if(start<ds[0]) start=mondayOf(ds[0]);
+  var days=rangeOf(start,end), inR={};
+  days.forEach(function(d){ inR[d]=1; });
+
+  var pats=app.patterns.map(function(p){ return p.name; });
+  var known={}, prof={};
+  app.staff.forEach(function(s){ known[s.name]=1; if(s.role==='진료교수') prof[s.name]=1; });
+
+  var per={}, order=[];
+  app.staff.forEach(function(s){ per[s.name]={tot:0,c:{},hol:0}; order.push(s.name); });
+  app.rows.forEach(function(r){
+    if(!inR[r.date]) return;
+    if(!per[r.name]){ per[r.name]={tot:0,c:{},hol:0}; order.push(r.name); }
+    var q=per[r.name];
+    q.tot++; q.c[r.shift]=(q.c[r.shift]||0)+1;
+    if(isHoliday(r.date)) q.hol++;
+  });
+  order=order.filter(function(nm){ return per[nm].tot>0; });
+
+  var num=function(v){ return v ? v : '<span class="zero">·</span>'; };
+
+  var hd='<tr><th>이름</th><th>총</th>'
+    +pats.map(function(pn){ return '<th>'+pn+'</th>'; }).join('')
+    +'<th>휴일</th></tr>';
+
+  var body=order.map(function(nm){
+    var q=per[nm];
+    return '<tr'+(nm===app.me?' class="meRow"':'')+'><td>'+nm
+      +(prof[nm]?'<span class="prole">진료교수</span>':'')
+      +(known[nm]?'':'<span class="unk" title="직원목록에 없는 이름">?</span>')
+      +'</td><td>'+num(q.tot)+'</td>'
+      +pats.map(function(pn){ return '<td>'+num(q.c[pn]||0)+'</td>'; }).join('')
+      +'<td>'+num(q.hol)+'</td></tr>';
+  }).join('');
+
+  // 전문의 편차 (최대−최소). 총·휴일·절대등급 근무는 ≤1 이어야 정상.
+  var specs=order.filter(function(nm){ return !prof[nm] && known[nm]; });
+  var diffCell=function(get,strict){
+    if(specs.length<2) return '<td>·</td>';
+    var vs=specs.map(get), df=Math.max.apply(null,vs)-Math.min.apply(null,vs);
+    if(!strict) return '<td>'+df+'</td>';
+    return '<td><b class="'+(df<=1?'ok':'bad')+'">'+df+'</b></td>';
+  };
+  var foot='<tr class="diff"><td>전문의 편차</td>'
+    +diffCell(function(nm){ return per[nm].tot; },true)
+    +pats.map(function(pn){
+      var strict=(app.pmap[pn]||{}).balance==='절대'||(app.pmap[pn]||{}).balance==='hard';
+      return diffCell(function(nm){ return per[nm].c[pn]||0; },strict);
+    }).join('')
+    +diffCell(function(nm){ return per[nm].hol; },true)+'</tr>';
+
+  var unkN=order.filter(function(nm){ return !known[nm]; }).length;
+  return '<div class="card stat">'
+    +'<div class="step" style="margin-bottom:10px">통계 기간 <b>'+start+' ~ '+end+'</b> ('
+    +(days.length/7)+'주) · 근무표 시트 기준이라 교체 내역도 반영됩니다.</div>'
+    +'<table><thead>'+hd+'</thead><tbody>'+body+foot+'</tbody></table>'
+    +'<div class="sub" style="margin-top:8px">휴일 = 토·일·공휴일 근무 수. '
+    +'편차는 최대−최소이며 진료교수 제외, 총·N·O·휴일은 1 이하가 정상입니다.'
+    +(unkN?' <span class="bad">직원목록에 없는 이름 '+unkN+'건이 있습니다. 시트에서 교체할 때 이름이 잘못 입력됐을 수 있으니 확인해 주세요.</span>':'')
+    +'</div></div>';
 }
 
 /* ── 모바일 폭맞춤: 여백·글씨 축소로도 넘치면 달력만 비율 축소 ── */
@@ -861,6 +952,9 @@ document.getElementById('me').addEventListener('change',function(e){
 });
 document.getElementById('onlyMine').addEventListener('click',function(){
   app.onlyMine=!app.onlyMine; renderBoard();
+});
+document.getElementById('statToggle').addEventListener('click',function(){
+  app.stats=!app.stats; renderBoard();
 });
 document.getElementById('board').addEventListener('click',function(e){
   var b=e.target.closest('.slot'); if(!b) return;
