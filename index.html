@@ -29,7 +29,7 @@ button{cursor:pointer;background:none;border:none}
 .topbar{position:sticky;top:0;z-index:30;background:var(--card);border-bottom:1px solid var(--line);
   padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .brand{font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap}
-.brand span{color:var(--faint);font-weight:400;margin-left:6px;font-size:12px}
+#period{color:var(--faint);font-size:12px;white-space:nowrap}
 .spacer{flex:1}
 .who{display:flex;align-items:center;gap:6px}
 .who label{font-size:12px;color:var(--mid)}
@@ -86,20 +86,15 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .t-x{color:var(--mid);background:var(--rest);border-color:var(--line-2)}
 .dim .slot:not(.me) .nm{color:var(--faint)}
 
-.list{display:flex;flex-direction:column;gap:3px}
-.lrow{display:grid;grid-template-columns:78px 1fr;gap:8px;align-items:start;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:7px 10px}
-.lrow.holi{background:#FDFBF6;border-color:#EADFC8}
-.ldate{font-size:12px;font-weight:600;color:var(--mid)}
-.ldate em{display:block;font-style:normal;font-weight:400;font-size:10px;color:#A8431F}
-.lslots{display:flex;flex-wrap:wrap;gap:4px 10px}
-
 .notice{border:1px solid var(--line-2);background:var(--card);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--mid)}
 .notice strong{color:var(--ink);font-weight:600}
 .notice code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--rest);padding:1px 5px;border-radius:3px}
 .err{border-color:#EEC5B2;background:#FAE9E1;color:#A8431F}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--mid);margin-top:10px}
 .legend b{font-weight:500;color:var(--ink)}
+#swapStep:empty,#tierLeg:empty{display:none}
+.dim .slot.s1 .nm{color:#3D2E00}.dim .slot.s2 .nm{color:#5C4700}
+.dim .slot.s3 .nm{color:#5F5426}.dim .slot.s4 .nm{color:#55534A}
 
 /* 교체 */
 .slot.mine-click{cursor:pointer}
@@ -165,24 +160,46 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 
 .step{font-size:12px;color:var(--mid);margin-bottom:6px}
 .step b{color:var(--ink);font-weight:600}
-@media (max-width:640px){ main{padding:12px} .topbar{padding:9px 12px} .tabs{padding:0 12px} }
+@media (max-width:640px){
+  main{padding:12px} .topbar{padding:9px 12px} .tabs{padding:0 12px}
+  .cal{min-width:0}
+}
+@media (max-width:480px){
+  main{padding:6px}
+  .topbar{padding:8px 10px;gap:8px}
+  .tabs{padding:0 6px}
+  .week,.dow{gap:2px;margin-bottom:2px}
+  .day{padding:3px 3px 4px;min-height:76px;border-radius:4px}
+  .slot{font-size:10.5px;gap:3px;padding:1px 2px;margin:0 -2px}
+  .slot .tag{width:13px;font-size:9px}
+  .dnum{font-size:10px;margin-bottom:2px}
+  .dnum .hname{font-size:9px}
+  .pfday{padding:4px;min-height:62px}
+  .pfrow{gap:2px}
+  .pfnum{font-size:10px}
+  .pfnum em{font-size:9px}
+  .pfb{font-size:10px}
+  .pfall{font-size:9px;padding:0 3px}
+  .legend{gap:8px;font-size:10.5px}
+  .tierleg{gap:4px;font-size:10.5px}
+}
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="brand">응급실 근무표<span id="period"></span></div>
-  <div class="spacer"></div>
+  <div class="brand">응급실 근무표</div>
   <div class="who">
     <label for="me">본인</label>
     <select id="me" class="picker"><option value="">선택</option></select>
   </div>
+  <span id="period"></span>
+  <div class="spacer"></div>
 </div>
 
 <div class="tabs" role="tablist">
   <button role="tab" data-tab="mine" aria-selected="true">내 일정</button>
   <button role="tab" data-tab="board" aria-selected="false">근무표</button>
-  <button role="tab" data-tab="swap" aria-selected="false">교체</button>
   <button role="tab" data-tab="admin" aria-selected="false">관리자</button>
 </div>
 
@@ -208,27 +225,17 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 
   <section class="panel" data-panel="board" hidden>
     <div class="bar">
-      <div class="h">8주 근무표</div><div class="spacer"></div>
-      <button class="btn" id="onlyMine" aria-pressed="false">내 근무만</button>
-      <button class="btn" id="viewToggle">목록으로</button>
+      <div class="h">근무표</div><div class="spacer"></div>
       <button class="btn" id="reload">새로고침</button>
+      <button class="btn" id="onlyMine" aria-pressed="false">내 근무만</button>
       <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트에서 교체</a>
     </div>
+    <div class="step" id="swapStep"></div>
+    <div class="tierleg" id="tierLeg"></div>
     <div id="board"></div>
     <div class="legend">
       <span><b>D</b> 08–16</span><span><b>E</b> 16–23</span>
       <span><b>N</b> 23–08</span><span><b>O</b> 18–06 이중근무</span>
-    </div>
-  </section>
-
-  <section class="panel" data-panel="swap" hidden>
-    <div class="bar"><div class="h">근무 교체</div><div class="spacer"></div>
-      <button class="btn" id="swapView">목록으로</button>
-      <button class="btn" id="swapReset">처음부터</button></div>
-    <div class="card">
-      <div class="step" id="swapStep"></div>
-      <div class="tierleg" id="tierLeg"></div>
-      <div id="swapCal"></div>
     </div>
   </section>
 
@@ -320,7 +327,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
+  me:'', onlyMine:false, pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -359,7 +366,7 @@ function apiGet(action,params){
 function boot(done){
   var q=new URLSearchParams(location.search);
   if(q.get('api')) API_URL=q.get('api');
-  app.me=load('me',''); app.view=load('view','cal');
+  app.me=load('me','');
 
   notice('불러오는 중','설정 · 근무패턴 · 직원 · 휴일 · 희망일정');
   apiGet('getBootstrap').then(function(res){
@@ -414,8 +421,8 @@ function ready(){
   var lk=document.getElementById('sheetLink');
   if(app.schedUrl){ lk.href=app.schedUrl; lk.hidden=false; }
   document.getElementById('period').textContent= app.dates.length
-    ? ' '+app.dates[0]+' → '+app.dates[app.dates.length-1]+' ('+(app.dates.length/7)+'주)'
-    : ' 근무표 없음';
+    ? app.dates[0]+' → '+app.dates[app.dates.length-1]+' ('+(app.dates.length/7)+'주)'
+    : '근무표 없음';
 
   var sel=document.getElementById('me');
   sel.innerHTML='<option value="">선택</option>';
@@ -428,7 +435,8 @@ function ready(){
 
   loadPrefsFor(app.me);
   admOpen(!!load('adm',0));
-  showTab(load('tab','mine'));
+  var t0=load('tab','mine'); if(t0==='swap') t0='board';
+  showTab(t0);
   renderAll();
 }
 
@@ -525,18 +533,18 @@ function findSwaps(myDate,myShift){
 }
 
 /* ── 렌더 ── */
-function renderAll(){ renderBoard(); renderSwap(); renderPrefs(); if(!document.getElementById('admBody').hidden) renderAdmin(); }
+function renderAll(){ renderBoard(); renderPrefs(); if(!document.getElementById('admBody').hidden) renderAdmin(); }
 
 function slotHTML(iso,p,opt){
   opt=opt||{};
   var who=(app.byDate[iso]||{})[p.name]||'';
   var mine=who&&who===app.me;
+  var tr=opt.tierOf&&opt.tierOf[iso+'|'+p.name];
   var shown=who;
-  if(opt.onlyMine&&!mine) shown='';
+  if(opt.onlyMine&&!mine&&!tr) shown='';
   var cls='slot'+(mine?' me':'')+(shown?'':' empty');
   if(opt.swap&&mine) cls+=' mine-click';
   if(opt.pickKey===iso+'|'+p.name) cls+=' pick';
-  var tr=opt.tierOf&&opt.tierOf[iso+'|'+p.name];
   if(tr) cls+=' s'+tr;
   return '<button class="'+cls+'" data-date="'+iso+'" data-shift="'+p.name+'">'
        + '<span class="tag t-'+(mine?'x':p.name)+'">'+p.name+'</span>'
@@ -545,7 +553,7 @@ function slotHTML(iso,p,opt){
 }
 
 function calendarHTML(opt){
-  var h='<div class="calwrap"><div class="cal"><div class="dow">'
+  var h='<div class="calwrap" data-fit="440"><div class="cal"><div class="dow">'
     +'<div>월</div><div>화</div><div>수</div><div>목</div><div>금</div>'
     +'<div class="sat">토</div><div class="sun">일</div></div>';
   for(var w=0; w*7<app.dates.length; w++){
@@ -565,93 +573,96 @@ function calendarHTML(opt){
   return h+'</div></div>';
 }
 
-function listHTML(opt){
-  var h='<div class="list">';
-  app.dates.forEach(function(iso){
-    var hn=app.holidays[iso]||'';
-    h+='<div class="lrow'+(isHoliday(iso)?' holi':'')+(opt.onlyMine?' dim':'')+'">'
-      +'<div class="ldate">'+shortDate(iso)+(hn?'<em>'+hn+'</em>':'')+'</div><div class="lslots">';
-    app.patterns.forEach(function(p){ h+=slotHTML(iso,p,opt); });
-    h+='</div></div>';
-  });
-  return h+'</div>';
-}
-
 function renderBoard(){
+  var brd=document.getElementById('board'),
+      st=document.getElementById('swapStep'),
+      lg=document.getElementById('tierLeg');
+  st.innerHTML=''; lg.innerHTML='';
+
   if(!app.dates.length){
-    document.getElementById('board').innerHTML=
+    brd.innerHTML=
       '<div class="notice"><strong>근무표가 없습니다</strong><br>'
       +'Colab 을 실행해 근무표 시트를 채워 주세요.</div>';
     return;
   }
-  document.getElementById('board').innerHTML=render({onlyMine:app.onlyMine});
-  document.getElementById('viewToggle').textContent=app.view==='cal'?'목록으로':'캘린더로';
   document.getElementById('onlyMine').setAttribute('aria-pressed',app.onlyMine?'true':'false');
-}
 
-function renderSwap(){
-  var st=document.getElementById('swapStep'),
-      lg=document.getElementById('tierLeg'),
-      cal=document.getElementById('swapCal');
-
-  document.getElementById('swapView').textContent=app.view==='cal'?'목록으로':'캘린더로';
-  lg.innerHTML='';
-
-  if(!app.me){
-    st.innerHTML='위에서 본인을 선택해 주세요.'; cal.innerHTML=''; return;
-  }
-  if(!app.dates.length){ st.innerHTML='근무표가 없습니다.'; cal.innerHTML=''; return; }
-  if(!Object.keys(app.byPerson[app.me]||{}).length){
-    st.innerHTML='아직 배정된 근무가 없습니다. 관리자 탭에서 임시 스케줄을 만들어 보세요.';
-    cal.innerHTML=''; return;
+  // 새로고침 등으로 선택한 근무가 더 이상 내 것이 아니면 해제
+  if(app.pick){
+    var v=app.pick.split('|');
+    if((app.byDate[v[0]]||{})[v[1]]!==app.me) app.pick=null;
   }
 
-  var opt={swap:true};
+  var opt={onlyMine:app.onlyMine};
+  var canSwap=app.me && Object.keys(app.byPerson[app.me]||{}).length;
+  if(canSwap) opt.swap=true;
 
   if(!app.pick){
-    st.innerHTML='달력에서 <b>내 근무</b>를 누르면 받아올 수 있는 근무가 표시됩니다.';
-    cal.innerHTML=render(opt);
-    return;
+    if(!app.me)
+      st.innerHTML='위에서 본인을 선택하면 근무 교체 가능 여부를 확인할 수 있습니다.';
+    else if(!canSwap)
+      st.innerHTML='아직 배정된 근무가 없습니다.';
+    else
+      st.innerHTML='<b>내 근무</b>(검은 칸)를 누르면 교체해서 받아올 수 있는 근무가 표시됩니다.';
+  } else {
+    var pk=app.pick.split('|'), myHoli=isHoliday(pk[0]);
+    var list=findSwaps(pk[0],pk[1]);
+    var tierOf={}, n=[0,0,0,0,0];
+    list.forEach(function(o){
+      var k=o.date+'|'+o.shift;
+      if(!tierOf[k]||o.tier<tierOf[k]) tierOf[k]=o.tier;
+      n[o.tier]++;
+    });
+    opt.pickKey=app.pick;
+    opt.tierOf=tierOf;
+
+    var wk={};
+    Object.keys(tierOf).forEach(function(k){
+      var w=Math.floor(app.dateIdx[k.split('|')[0]]/7)+1;
+      wk[w]=(wk[w]||0)+1;
+    });
+    var wkTxt=Object.keys(wk).sort(function(a,b){return a-b;})
+      .map(function(w){ return w+'주 '+wk[w]; }).join(' · ');
+    var tight = ((app.transitions[pk[1]]||{})[1]||[]).length === 0;
+
+    st.innerHTML='<b>'+shortDate(pk[0])+' '+pk[1]+'</b> ('+(myHoli?'휴일':'주중')+') 를 넘깁니다. '
+      +'받아올 수 있는 근무 <b>'+Object.keys(tierOf).length+'개</b>'
+      +' &nbsp;<span class="sub">주차별: '+(wkTxt||'없음')+'</span>'
+      +' &nbsp;<span class="sub">같은 칸을 다시 누르면 해제</span>'
+      + (tight ? '<div class="sub" style="margin-top:6px">'
+          +pk[1]+' 는 다음날이 통째로 휴무라, 그날과 다음날이 모두 비어 있는 사람만 받을 수 있습니다. '
+          +'그래서 대부분 <b>바로 다음날 근무를 맞바꾸는</b> 형태로만 성립합니다.</div>' : '');
+
+    lg.innerHTML=
+       '<span class="s1">같은 조건 '+n[1]+'</span>'
+      +'<span class="s2">휴일만 다름 '+n[2]+'</span>'
+      +'<span class="s3">근무만 다름 '+n[3]+'</span>'
+      +'<span class="s4">둘 다 다름 '+n[4]+'</span>';
   }
 
-  var pk=app.pick.split('|'), myHoli=isHoliday(pk[0]);
-  var list=findSwaps(pk[0],pk[1]);
-  var tierOf={}, n=[0,0,0,0,0];
-  list.forEach(function(o){
-    var k=o.date+'|'+o.shift;
-    if(!tierOf[k]||o.tier<tierOf[k]) tierOf[k]=o.tier;
-    n[o.tier]++;
-  });
-
-  opt.pickKey=app.pick;
-  opt.tierOf=tierOf;
-
-  var wk={}, mi=app.dateIdx[pk[0]];
-  var tight = ((app.transitions[pk[1]]||{})[1]||[]).length === 0;
-  Object.keys(tierOf).forEach(function(k){
-    var w=Math.floor(app.dateIdx[k.split('|')[0]]/7)+1;
-    wk[w]=(wk[w]||0)+1;
-  });
-  var wkTxt=Object.keys(wk).sort(function(a,b){return a-b;})
-    .map(function(w){ return w+'주 '+wk[w]; }).join(' · ');
-
-  st.innerHTML='<b>'+shortDate(pk[0])+' '+pk[1]+'</b> ('+(myHoli?'휴일':'주중')+') 를 넘깁니다. '
-    +'받아올 수 있는 근무 <b>'+Object.keys(tierOf).length+'개</b>'
-    +' &nbsp;<span class="sub">주차별: '+(wkTxt||'없음')+'</span>'
-    + (tight ? '<div class="sub" style="margin-top:6px">'
-        +pk[1]+' 는 다음날이 통째로 휴무라, 그날과 다음날이 모두 비어 있는 사람만 받을 수 있습니다. '
-        +'그래서 대부분 <b>바로 다음날 근무를 맞바꾸는</b> 형태로만 성립합니다.</div>' : '');
-
-  lg.innerHTML=
-     '<span class="s1">같은 조건 '+n[1]+'</span>'
-    +'<span class="s2">휴일만 다름 '+n[2]+'</span>'
-    +'<span class="s3">근무만 다름 '+n[3]+'</span>'
-    +'<span class="s4">둘 다 다름 '+n[4]+'</span>';
-
-  cal.innerHTML=render(opt);
+  brd.innerHTML=calendarHTML(opt);
+  fitCals();
 }
 
-function render(opt){ return app.view==='cal'?calendarHTML(opt):listHTML(opt); }
+/* ── 모바일 폭맞춤: 여백·글씨 축소로도 넘치면 달력만 비율 축소 ── */
+function fitCals(){
+  document.querySelectorAll('.calwrap[data-fit]').forEach(function(w){
+    var c=w.querySelector('.cal'); if(!c) return;
+    c.style.transform=''; c.style.width=''; w.style.height=''; w.style.overflow='';
+    if(!w.clientWidth) return;                     // 숨겨진 탭이면 건너뜀
+    var min=+w.dataset.fit||440, avail=w.clientWidth;
+    if(avail>=min) return;                         // CSS 압축만으로 충분
+    var sc=avail/min;
+    c.style.width=min+'px';
+    c.style.transformOrigin='top left';
+    c.style.transform='scale('+sc+')';
+    w.style.height=Math.ceil(c.offsetHeight*sc)+'px';
+    w.style.overflow='hidden';
+  });
+}
+window.addEventListener('resize',function(){
+  clearTimeout(app._ft); app._ft=setTimeout(fitCals,150);
+});
 
 
 /* ── 희망 · 불가 입력 ─────────────────────── */
@@ -698,7 +709,7 @@ function renderPrefs(){
   info.innerHTML=app.me+' · 지정한 날 '+n+'일'
     +(app.pfDirty?' <span class="bad">저장 안 됨</span>':'');
 
-  var h='<div class="calwrap"><div class="cal"><div class="dow">'
+  var h='<div class="calwrap" data-fit="500"><div class="cal"><div class="dow">'
     +'<div>월</div><div>화</div><div>수</div><div>목</div><div>금</div>'
     +'<div class="sat">토</div><div class="sun">일</div></div>';
   var PD=app.pfDates;
@@ -721,6 +732,7 @@ function renderPrefs(){
     h+='</div>';
   }
   cal.innerHTML=h+'</div></div>';
+  fitCals();
 }
 
 function pfCell(d){
@@ -836,6 +848,7 @@ function showTab(name){
   });
   document.querySelectorAll('.panel').forEach(function(p){ p.hidden=p.dataset.panel!==name; });
   save('tab',name);
+  fitCals();
 }
 
 /* ── 이벤트 ── */
@@ -849,25 +862,14 @@ document.getElementById('me').addEventListener('change',function(e){
 document.getElementById('onlyMine').addEventListener('click',function(){
   app.onlyMine=!app.onlyMine; renderBoard();
 });
-document.getElementById('viewToggle').addEventListener('click',function(){
-  app.view=app.view==='cal'?'list':'cal'; save('view',app.view); renderBoard();
-});
 document.getElementById('board').addEventListener('click',function(e){
-  var b=e.target.closest('.slot'); if(!b) return;
-  var who=(app.byDate[b.dataset.date]||{})[b.dataset.shift];
-  if(who && who===app.me){
-    app.pick=b.dataset.date+'|'+b.dataset.shift;
-    showTab('swap'); renderSwap();
-  }
-});
-document.getElementById('swapCal').addEventListener('click',function(e){
   var b=e.target.closest('.slot'); if(!b) return;
   var d=b.dataset.date, s=b.dataset.shift;
   if((app.byDate[d]||{})[s]!==app.me) return;      // 내 근무만 선택 가능
   if(d < todayISO()) return;                       // 지난 날짜는 교체 대상 아님
   var k=d+'|'+s;
   app.pick = app.pick===k ? null : k;
-  renderSwap();
+  renderBoard();
 });
 
 
@@ -977,7 +979,6 @@ document.getElementById('holSync').addEventListener('click',function(){
 });
 
 
-if(window.innerWidth<640 && load('view',null)===null) app.view='list';
 boot();
 </script>
 </body>
