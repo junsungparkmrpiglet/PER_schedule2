@@ -110,8 +110,14 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .k2 .nm{color:#5C4700;font-weight:600}
 .k3{background:#E6E4DA;box-shadow:inset 0 0 0 1px #B5B2A4;border-radius:3px}
 .k3 .nm{color:#55534A}
-.peek{outline:2px solid #33417A;outline-offset:1px;position:relative;z-index:2}
-.peek .nm{font-weight:700}
+.slot.peek{background:#F3BFAE !important;box-shadow:inset 0 0 0 2px #A8431F !important;
+  border-radius:3px;position:relative;z-index:2}
+.slot.peek .nm{color:#5A1E0C !important;font-weight:700}
+.slot.peek .tag{background:#FBEDE8}
+.tip{position:fixed;z-index:80;background:var(--ink);color:var(--paper);
+  font-size:11.5px;line-height:1.5;padding:5px 9px;border-radius:6px;
+  pointer-events:none;white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.22)}
+.tip[hidden]{display:none}
 .pfday{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   padding:5px;min-height:74px;display:flex;flex-direction:column;gap:5px}
 .pfday.holi{background:#FDFBF6;border-color:#EADFC8}
@@ -467,23 +473,41 @@ function blocked(name,date,shift){
   return (p.block||[]).indexOf(shift)>=0;
 }
 
-/**
- * name 이 (date, shift) 를 맡을 수 있는지.
- * skipKey 로 지정한 자기 근무 하나는 빠진 것으로 봅니다.
- * 휴게 3시간 미만이거나 불가일정이면 false.
- */
-function canTake(name,date,shift,skipKey){
-  if(blocked(name,date,shift)) return false;
-  var mine=app.byPerson[name]||{};
+/** name 이 (date, shift) 를 맡을 때 앞뒤로 생기는 가장 짧은 휴게시간 */
+function minGapOf(name,date,shift,skipKey){
+  var mine=app.byPerson[name]||{}, m=Infinity;
   for(var k=-2;k<=2;k++){
     var nd=shiftDate(date,k), ns=mine[nd];
     if(!ns || (nd+'|'+ns)===skipKey) continue;
     var g = (k<0 || (k===0 && app.pmap[ns].start < app.pmap[shift].start))
       ? gapOf(ns,nd,shift,date)      // 상대 근무가 앞
       : gapOf(shift,date,ns,nd);     // 내 근무가 앞
-    if(g < REST_MIN) return false;
+    if(g < m) m = g;
   }
-  return true;
+  return m;
+}
+
+function canTake(name,date,shift,skipKey){
+  return !blocked(name,date,shift) && minGapOf(name,date,shift,skipKey) >= REST_MIN;
+}
+
+/** 후보가 아닌 이유를 한 줄로 */
+function whyNot(name,d,t){
+  if(!app.pick) return '';
+  if(name===app.me) return '내 근무';
+  if(d < todayISO()) return '지난 근무';
+  var pk=app.pick.split('|'), myDate=pk[0], myShift=pk[1];
+  if(t!==myShift && isHoliday(d)!==isHoliday(myDate)) return '근무 종류·휴일 모두 다름';
+
+  var myKey=myDate+'|'+myShift, theirKey=d+'|'+t;
+  if(blocked(name,myDate,myShift)) return name+' 님 '+shortDate(myDate)+' 불가 일정';
+  if(blocked(app.me,d,t))          return '내 '+shortDate(d)+' 불가 일정';
+
+  var a=minGapOf(name,myDate,myShift,theirKey);
+  var b=minGapOf(app.me,d,t,myKey);
+  var g=Math.min(a,b);
+  if(g < REST_MIN) return '교체 시 최소 휴게 ' + (g<=0 ? (g===0?'0시간 (연달아 근무)':'겹침') : g+'시간');
+  return '';
 }
 
 /**
@@ -845,25 +869,49 @@ swapCal.addEventListener('click',function(e){
   var d=b.dataset.date, s=b.dataset.shift, k=d+'|'+s;
 
   if(app.pick && app.marks[k]){                    // 후보를 누르면 미리보기 고정
+    hideTip();
     if(app.peek===k){ app.peek=null; clearPeek(); }
     else { app.peek=k; showPeek(k); }
     return;
   }
+  if(app.pick && b.dataset.who && (app.byDate[d]||{})[s]!==app.me){
+    var why=whyNot(b.dataset.who,d,s);             // 모바일: 눌러도 사유 표시
+    if(why){ showTip(b,why); return; }
+  }
   if((app.byDate[d]||{})[s]!==app.me) return;      // 그 밖엔 내 근무만
   if(d < todayISO()) return;                       // 지난 날짜는 대상 아님
   if(app.pick===k) return;                         // 두 번 눌러도 풀리지 않게
-  app.pick=k; app.peek=null;
+  app.pick=k; app.peek=null; hideTip();
   renderSwap();
 });
 
+var tip=document.createElement('div');
+tip.className='tip'; tip.hidden=true; document.body.appendChild(tip);
+
+function showTip(el,text){
+  tip.textContent=text; tip.hidden=false;
+  var r=el.getBoundingClientRect();
+  var x=Math.min(r.left, window.innerWidth - tip.offsetWidth - 8);
+  var y=r.bottom + 5;
+  if(y + tip.offsetHeight > window.innerHeight - 4) y = r.top - tip.offsetHeight - 5;
+  tip.style.left=Math.max(4,x)+'px'; tip.style.top=y+'px';
+}
+function hideTip(){ tip.hidden=true; }
+
 swapCal.addEventListener('mouseover',function(e){
-  var b=e.target.closest('.slot'); if(!b || app.peek) return;
-  var k=b.dataset.date+'|'+b.dataset.shift;
-  if(app.pick && app.marks[k]) showPeek(k);
+  var b=e.target.closest('.slot'); if(!b || !app.pick) return;
+  var d=b.dataset.date, s=b.dataset.shift, k=d+'|'+s;
+  if(app.marks[k]){ if(!app.peek) showPeek(k); hideTip(); return; }
+  if(!b.dataset.who) return;
+  var r=whyNot(b.dataset.who,d,s);
+  if(r) showTip(b,r);
 });
 swapCal.addEventListener('mouseout',function(e){
-  if(!app.peek && e.target.closest('.slot')) clearPeek();
+  if(!e.target.closest('.slot')) return;
+  hideTip();
+  if(!app.peek) clearPeek();
 });
+swapCal.addEventListener('mouseleave',function(){ hideTip(); if(!app.peek) clearPeek(); });
 
 /** 교체하면 앞뒤 이틀이 어떻게 되는지 미리 보여줍니다 */
 function showPeek(key){
