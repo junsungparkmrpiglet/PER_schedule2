@@ -104,26 +104,14 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 /* 교체 */
 .slot.mine-click{cursor:pointer}
 .slot.mine-click:hover{outline:2px solid var(--ink);outline-offset:1px}
-.g1{background:#A8D8C4;box-shadow:inset 0 0 0 2px #0F5C46;border-radius:3px}
-.g1 .nm{color:#0B3A2E;font-weight:700}
-.g2{background:#CBE7DA;box-shadow:inset 0 0 0 1.5px #3E8F73;border-radius:3px}
-.g2 .nm{color:#12503E;font-weight:600}
-.g3{background:#E5F2EC;box-shadow:inset 0 0 0 1px #93C4B0;border-radius:3px}
-.g3 .nm{color:#2A6151;font-weight:500}
-.y1{background:#F2C230;box-shadow:inset 0 0 0 2px #6B5200;border-radius:3px}
-.y1 .nm{color:#3D2E00;font-weight:700}
-.y2{background:#F8DC8C;box-shadow:inset 0 0 0 1.5px #B8901A;border-radius:3px}
-.y2 .nm{color:#5C4700;font-weight:600}
-.y3{background:#FAEFCC;box-shadow:inset 0 0 0 1px #DBC276;border-radius:3px}
-.y3 .nm{color:#6B5200;font-weight:500}
-.r1{background:#E8927C;box-shadow:inset 0 0 0 2px #7E2711;border-radius:3px}
-.r1 .nm{color:#4A1508;font-weight:700}
-.r2{background:#F2BCAB;box-shadow:inset 0 0 0 1.5px #B54B25;border-radius:3px}
-.r2 .nm{color:#752C13;font-weight:600}
-.r3{background:#F9DFD6;box-shadow:inset 0 0 0 1px #DFA48E;border-radius:3px}
-.r3 .nm{color:#8A3A1E;font-weight:500}
-.x4{background:#E6E4DA;box-shadow:inset 0 0 0 1px #B5B2A4;border-radius:3px}
-.x4 .nm{color:#55534A}
+.k1{background:#F2C230;box-shadow:inset 0 0 0 2px #6B5200;border-radius:3px}
+.k1 .nm{color:#3D2E00;font-weight:700}
+.k2{background:#F9E6A6;box-shadow:inset 0 0 0 1.5px #C29A22;border-radius:3px}
+.k2 .nm{color:#5C4700;font-weight:600}
+.k3{background:#E6E4DA;box-shadow:inset 0 0 0 1px #B5B2A4;border-radius:3px}
+.k3 .nm{color:#55534A}
+.peek{outline:2px solid #33417A;outline-offset:1px;position:relative;z-index:2}
+.peek .nm{font-weight:700}
 .pfday{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   padding:5px;min-height:74px;display:flex;flex-direction:column;gap:5px}
 .pfday.holi{background:#FDFBF6;border-color:#EADFC8}
@@ -332,7 +320,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, schedUrl:'', schedWarn:[], schedNote:'',
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, marks:{}, peek:null, schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -458,13 +446,12 @@ function indexSchedule(rows){
 function setSchedule(rows){ indexSchedule(rows); }
 
 /* ── 규칙 판정 ──────────────────────────────
-   교체는 불가피한 상황에서 하므로 휴게시간을 등급으로 나눕니다.
-     2시간 이하 · 불가일정  → 제외
-     규정 충족              → 초록
-     12시간 이상            → 노랑
-     12시간 미만            → 빨강
+   교체는 불가피한 상황에서 하므로 휴게시간을 느슨하게 봅니다.
+     연달아 근무이거나 휴게 3시간 미만 → 제외
+     개인 불가일정                     → 제외
+   나머지는 전부 후보로 보여주고, 조건 유사도만 색으로 구분합니다.
    ───────────────────────────────────────── */
-var REST_OUT = 2, REST_WARN = 12;
+var REST_MIN = 3;
 
 function dayDiff(a,b){ return Math.round((parseISO(b)-parseISO(a))/86400000); }
 
@@ -481,56 +468,43 @@ function blocked(name,date,shift){
 }
 
 /**
- * name 이 (date, shift) 를 맡을 때의 위험도.
+ * name 이 (date, shift) 를 맡을 수 있는지.
  * skipKey 로 지정한 자기 근무 하나는 빠진 것으로 봅니다.
- * 반환: null(제외) 또는 { risk:'g'|'y'|'r', min:최소휴게 }
+ * 휴게 3시간 미만이거나 불가일정이면 false.
  */
-function riskOf(name,date,shift,skipKey){
-  if(blocked(name,date,shift)) return null;
-  var mine=app.byPerson[name]||{}, worst=0, minGap=Infinity;
-
+function canTake(name,date,shift,skipKey){
+  if(blocked(name,date,shift)) return false;
+  var mine=app.byPerson[name]||{};
   for(var k=-2;k<=2;k++){
     var nd=shiftDate(date,k), ns=mine[nd];
     if(!ns || (nd+'|'+ns)===skipKey) continue;
-
-    var g, need;
-    if(k<0 || (k===0 && app.pmap[ns].start < app.pmap[shift].start)){
-      g=gapOf(ns,nd,shift,date);  need=app.pmap[ns].restH;      // 상대 근무가 앞
-    } else {
-      g=gapOf(shift,date,ns,nd);  need=app.pmap[shift].restH;   // 내 근무가 앞
-    }
-    if(g<=REST_OUT) return null;
-    minGap=Math.min(minGap,g);
-    worst=Math.max(worst, g>=need ? 0 : (g>=REST_WARN ? 1 : 2));
+    var g = (k<0 || (k===0 && app.pmap[ns].start < app.pmap[shift].start))
+      ? gapOf(ns,nd,shift,date)      // 상대 근무가 앞
+      : gapOf(shift,date,ns,nd);     // 내 근무가 앞
+    if(g < REST_MIN) return false;
   }
-  return { risk:['g','y','r'][worst], min:(minGap===Infinity?null:minGap) };
+  return true;
 }
 
 /**
- * 내 근무 (date, shift) 를 넘길 때 성립하는 맞교환을 전부 찾습니다.
- *   tier 1 휴일여부·근무종류 모두 같음 / 2 근무만 같음 / 3 휴일만 같음 / 4 둘 다 다름
- *   risk  g 규정 충족 / y 12시간 이상 / r 12시간 미만  (양쪽 중 나쁜 쪽)
+ * 내 근무 (date, shift) 를 넘길 때 성립하는 맞교환.
+ *   tier 1 모두 같음 · 2 주말만 다름 · 3 근무 종류 다름(회색)
+ *   둘 다 다른 경우는 표시하지 않습니다.
  */
 function findSwaps(myDate,myShift){
   var out=[], myKey=myDate+'|'+myShift, myHoli=isHoliday(myDate);
-  var order={g:0,y:1,r:2};
   app.staff.forEach(function(s){
     if(s.name===app.me) return;
     var theirs=app.byPerson[s.name]||{};
     for(var d in theirs){
       if(d < todayISO()) continue;
       var t=theirs[d], theirKey=d+'|'+t;
-      var a=riskOf(s.name,myDate,myShift,theirKey);   // 상대가 내 근무를 받을 때
-      if(!a) continue;
-      var b=riskOf(app.me,d,t,myKey);                 // 내가 그 근무를 받을 때
-      if(!b) continue;
-      var risk = order[a.risk]>=order[b.risk] ? a.risk : b.risk;
       var sameShift=(t===myShift), sameHoli=(isHoliday(d)===myHoli);
-      out.push({
-        date:d, shift:t, name:s.name, risk:risk,
-        min:Math.min(a.min===null?999:a.min, b.min===null?999:b.min),
-        tier: sameShift&&sameHoli ? 1 : (sameShift ? 2 : (sameHoli ? 3 : 4))
-      });
+      if(!sameShift && !sameHoli) continue;                    // 둘 다 다르면 제외
+      if(!canTake(s.name,myDate,myShift,theirKey)) continue;   // 상대가 내 근무를 받을 수 있나
+      if(!canTake(app.me,d,t,myKey)) continue;                 // 내가 그 근무를 받을 수 있나
+      out.push({ date:d, shift:t, name:s.name,
+                 tier: sameShift ? (sameHoli?1:2) : 3 });
     }
   });
   return out;
@@ -549,8 +523,9 @@ function slotHTML(iso,p,opt){
   if(opt.swap&&mine) cls+=' mine-click';
   if(opt.pickKey===iso+'|'+p.name) cls+=' pick';
   var mk=opt.markOf&&opt.markOf[iso+'|'+p.name];
-  if(mk) cls+=' '+(mk.tier===4 ? 'x4' : mk.risk+mk.tier);
-  return '<button class="'+cls+'" data-date="'+iso+'" data-shift="'+p.name+'">'
+  if(mk) cls+=' k'+mk.tier;
+  return '<button class="'+cls+'" data-date="'+iso+'" data-shift="'+p.name+'"'
+       + (who?' data-who="'+who+'"':'') + '>'
        + '<span class="tag t-'+(mine?'x':p.name)+'">'+p.name+'</span>'
        + '<span class="nm">'+(shown||'·')
        + '</span></button>';
@@ -629,34 +604,26 @@ function renderSwap(){
   var pk=app.pick.split('|'), myHoli=isHoliday(pk[0]);
   var list=findSwaps(pk[0],pk[1]);
 
-  var markOf={}, rank={g:0,y:1,r:2};
-  var cnt={g:0,y:0,r:0}, tcnt=[0,0,0,0,0];
+  var markOf={}, tcnt=[0,0,0,0];
   list.forEach(function(o){
     var k=o.date+'|'+o.shift, cur=markOf[k];
-    // 같은 자리에 여러 조합이 걸리면 더 좋은 쪽을 남깁니다
-    if(!cur || rank[o.risk]<rank[cur.risk] || (o.risk===cur.risk && o.tier<cur.tier)) markOf[k]=o;
+    if(!cur || o.tier<cur.tier) markOf[k]=o;
   });
-  Object.keys(markOf).forEach(function(k){
-    cnt[markOf[k].risk]++; tcnt[markOf[k].tier]++;
-  });
+  Object.keys(markOf).forEach(function(k){ tcnt[markOf[k].tier]++; });
 
   opt.pickKey=app.pick;
   opt.markOf=markOf;
+  app.marks=markOf;
 
   st.innerHTML='<b>'+shortDate(pk[0])+' '+pk[1]+'</b> ('+(myHoli?'휴일':'주중')+') 를 넘깁니다. '
     +'받아올 수 있는 근무 <b>'+Object.keys(markOf).length+'개</b>. '
-    +'실제 교대는 근무표 시트에서 진행하세요.';
+    +'강조된 이름 위에 마우스를 올리면 (모바일은 한 번 누르면) '
+    +'바꾼 뒤 앞뒤 이틀이 어떻게 되는지 보여줍니다.';
 
   lg.innerHTML=
-     '<span class="lab">휴게</span>'
-    +'<span class="g1">충분 '+cnt.g+'</span>'
-    +'<span class="y1">12시간 이상 '+cnt.y+'</span>'
-    +'<span class="r1">12시간 미만 '+cnt.r+'</span>'
-    +'<span class="lab" style="margin-left:10px">조건</span>'
-    +'<span class="g1">같음 '+tcnt[1]+'</span>'
-    +'<span class="g2">근무만 같음 '+tcnt[2]+'</span>'
-    +'<span class="g3">휴일만 같음 '+tcnt[3]+'</span>'
-    +'<span class="x4">둘 다 다름 '+tcnt[4]+'</span>';
+     '<span class="k1">모두 같음 '+tcnt[1]+'</span>'
+    +'<span class="k2">주말만 다름 '+tcnt[2]+'</span>'
+    +'<span class="k3">근무 종류 다름 '+tcnt[3]+'</span>';
 
   cal.innerHTML=render(opt);
 }
@@ -870,15 +837,51 @@ document.getElementById('board').addEventListener('click',function(e){
     showTab('swap'); renderSwap();
   }
 });
-document.getElementById('swapCal').addEventListener('click',function(e){
+/* ── 교체: 선택과 미리보기 ── */
+var swapCal=document.getElementById('swapCal');
+
+swapCal.addEventListener('click',function(e){
   var b=e.target.closest('.slot'); if(!b) return;
-  var d=b.dataset.date, s=b.dataset.shift;
-  if((app.byDate[d]||{})[s]!==app.me) return;      // 내 근무만 선택 가능
-  if(d < todayISO()) return;                       // 지난 날짜는 교체 대상 아님
-  var k=d+'|'+s;
-  app.pick = app.pick===k ? null : k;
+  var d=b.dataset.date, s=b.dataset.shift, k=d+'|'+s;
+
+  if(app.pick && app.marks[k]){                    // 후보를 누르면 미리보기 고정
+    if(app.peek===k){ app.peek=null; clearPeek(); }
+    else { app.peek=k; showPeek(k); }
+    return;
+  }
+  if((app.byDate[d]||{})[s]!==app.me) return;      // 그 밖엔 내 근무만
+  if(d < todayISO()) return;                       // 지난 날짜는 대상 아님
+  if(app.pick===k) return;                         // 두 번 눌러도 풀리지 않게
+  app.pick=k; app.peek=null;
   renderSwap();
 });
+
+swapCal.addEventListener('mouseover',function(e){
+  var b=e.target.closest('.slot'); if(!b || app.peek) return;
+  var k=b.dataset.date+'|'+b.dataset.shift;
+  if(app.pick && app.marks[k]) showPeek(k);
+});
+swapCal.addEventListener('mouseout',function(e){
+  if(!app.peek && e.target.closest('.slot')) clearPeek();
+});
+
+/** 교체하면 앞뒤 이틀이 어떻게 되는지 미리 보여줍니다 */
+function showPeek(key){
+  clearPeek();
+  var o=app.marks[key]; if(!o || !app.pick) return;
+  var myDate=app.pick.split('|')[0];
+  var want={};
+  for(var k=-2;k<=2;k++){
+    want[shiftDate(myDate,k)+'|'+o.name]=1;        // 내 근무 주변 → 상대 이름
+    want[shiftDate(o.date,k)+'|'+app.me]=1;        // 상대 근무 주변 → 내 이름
+  }
+  swapCal.querySelectorAll('.slot[data-who]').forEach(function(el){
+    if(want[el.dataset.date+'|'+el.dataset.who]) el.classList.add('peek');
+  });
+}
+function clearPeek(){
+  swapCal.querySelectorAll('.peek').forEach(function(el){ el.classList.remove('peek'); });
+}
 
 
 function reloadAll(){
