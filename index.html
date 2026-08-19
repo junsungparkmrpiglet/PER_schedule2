@@ -155,6 +155,18 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 .tbl input:focus,.tbl select:focus{border-color:var(--ink)}
 .tbl .del{color:var(--faint);font-size:15px;line-height:1;padding:0 4px}
 .tbl .del:hover{color:#A8431F}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;margin-bottom:12px;overflow-x:auto}
+.stat table{border-collapse:collapse;width:100%;min-width:420px;font-size:12.5px}
+.stat th{font-size:11px;font-weight:500;color:var(--mid);text-align:right;
+  padding:0 6px 6px;white-space:nowrap;border-bottom:1px solid var(--line)}
+.stat th:first-child{text-align:left}
+.stat td{padding:4px 6px;text-align:right;white-space:nowrap}
+.stat td:first-child{text-align:left;font-weight:500}
+.stat tr.me td{background:var(--rest);font-weight:700}
+.stat tr.sum td{border-top:1px solid var(--line);color:var(--mid);font-weight:600}
+.stat tr.prof td{color:var(--mid)}
+.stat .rng{font-size:11.5px;color:var(--mid);margin-top:8px}
 .fsel{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--mid)}
 .fsel select{border:1px solid var(--line-2);border-radius:var(--r);padding:4px 7px;
   font-size:12.5px;background:var(--card);color:var(--ink)}
@@ -259,6 +271,7 @@ main{padding:16px;max-width:1120px;margin:0 auto}
       <div class="h">근무표</div><div class="spacer"></div>
       <button class="btn" id="onlyMine" aria-pressed="false">내 근무만</button>
       <button class="btn" id="viewToggle">목록으로</button>
+      <button class="btn" id="statBtn" aria-pressed="false">근무 통계</button>
       <button class="btn" id="reload">새로고침</button>
       <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트에서 교체</a>
     </div>
@@ -268,6 +281,7 @@ main{padding:16px;max-width:1120px;margin:0 auto}
       <label class="fsel">상대 최소 휴게<select id="restYou"></select></label>
       <button class="btn" id="swapReset">선택 해제</button>
     </div>
+    <div id="statWrap" hidden></div>
     <div class="step" id="swapStep"></div>
     <div class="tierleg" id="tierLeg"></div>
     <div id="board"></div>
@@ -365,7 +379,7 @@ var LS = 'er-sched-v2';
 var app = {
   config:{}, patterns:[], pmap:{}, transitions:{}, staff:[], holidays:{},
   prefIdx:{}, dates:[], dateIdx:{}, byDate:{}, byPerson:{},
-  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, marks:{}, peek:null, restMe:3, restYou:3, schedUrl:'', schedWarn:[], schedNote:'',
+  me:'', onlyMine:false, view:'cal', pf:{}, pfDates:[], pfDirty:false, marks:{}, peek:null, restMe:3, restYou:3, stat:false, statRange:'show', schedUrl:'', schedWarn:[], schedNote:'',
   pick:null
 };
 
@@ -406,6 +420,7 @@ function boot(done){
   if(q.get('api')) API_URL=q.get('api');
   app.me=load('me',''); app.view=load('view','cal');
   app.restMe=load('restMe',3); app.restYou=load('restYou',3);
+  app.stat=load('stat',false); app.statRange=load('statRange','show');
 
   notice('불러오는 중','설정 · 근무패턴 · 직원 · 휴일 · 희망일정');
   apiGet('getBootstrap').then(function(res){
@@ -577,7 +592,7 @@ function findSwaps(myDate,myShift){
 }
 
 /* ── 렌더 ── */
-function renderAll(){ renderBoard(); renderPrefs(); if(!document.getElementById('admBody').hidden) renderAdmin(); }
+function renderAll(){ renderBoard(); renderStat(); renderPrefs(); if(!document.getElementById('admBody').hidden) renderAdmin(); }
 
 function slotHTML(iso,p,opt){
   opt=opt||{};
@@ -628,6 +643,80 @@ function listHTML(opt){
     h+='</div></div>';
   });
   return h+'</div>';
+}
+
+/* ── 근무 통계 ─────────────────────────────── */
+function renderStat(){
+  var el=document.getElementById('statWrap');
+  document.getElementById('statBtn').setAttribute('aria-pressed', app.stat?'true':'false');
+  el.hidden=!app.stat;
+  if(!app.stat) return;
+
+  var all=Object.keys(app.byDate).sort();
+  if(!all.length){ el.innerHTML='<div class="stat sub">근무표가 없습니다.</div>'; return; }
+
+  var from, to;
+  if(app.statRange==='all'){ from=all[0]; to=all[all.length-1]; }
+  else { from=app.dates[0]; to=app.dates[app.dates.length-1]; }
+
+  var night=['N','O'].filter(function(s){ return app.pmap[s]; });
+  var cols=app.patterns.map(function(p){ return p.name; });
+  var head=['근무자'].concat(cols).concat([night.join('+'),'휴일','총']);
+
+  var names=app.staff.map(function(s){ return s.name; });
+  Object.keys(app.byPerson).forEach(function(n){ if(names.indexOf(n)<0) names.push(n); });
+
+  function row(n){
+    var m=app.byPerson[n]||{}, r={};
+    cols.forEach(function(c){ r[c]=0; });
+    r.ng=0; r.hol=0; r.tot=0;
+    for(var d in m){
+      if(d<from||d>to) continue;
+      var s=m[d];
+      if(r[s]!==undefined) r[s]++;
+      if(night.indexOf(s)>=0) r.ng++;
+      if(isHoliday(d)) r.hol++;
+      r.tot++;
+    }
+    return r;
+  }
+
+  var sum={}; cols.forEach(function(c){ sum[c]=0; }); sum.ng=0; sum.hol=0; sum.tot=0;
+  var body='';
+  names.forEach(function(n){
+    var r=row(n), st=(app.staff.filter(function(s){return s.name===n;})[0]||{});
+    cols.forEach(function(c){ sum[c]+=r[c]; });
+    sum.ng+=r.ng; sum.hol+=r.hol; sum.tot+=r.tot;
+    body+='<tr class="'+(n===app.me?'me':(st.role==='진료교수'?'prof':''))+'"><td>'+n+'</td>'
+      + cols.map(function(c){ return '<td>'+r[c]+'</td>'; }).join('')
+      + '<td>'+r.ng+'</td><td>'+r.hol+'</td><td>'+r.tot+'</td></tr>';
+  });
+  body+='<tr class="sum"><td>합계</td>'
+    + cols.map(function(c){ return '<td>'+sum[c]+'</td>'; }).join('')
+    + '<td>'+sum.ng+'</td><td>'+sum.hol+'</td><td>'+sum.tot+'</td></tr>';
+
+  // 전문의 편차
+  var spec=app.staff.filter(function(s){ return s.role!=='진료교수'; }).map(function(s){ return s.name; });
+  var dev='';
+  if(spec.length>1){
+    dev=cols.concat(['ng','hol','tot']).map(function(k){
+      var v=spec.map(function(n){ var r=row(n); return k==='ng'?r.ng:(k==='hol'?r.hol:(k==='tot'?r.tot:r[k])); });
+      var mn=Math.min.apply(null,v), mx=Math.max.apply(null,v);
+      var lbl = k==='ng'?night.join('+') : (k==='hol'?'휴일' : (k==='tot'?'총':k));
+      return lbl+' '+mn+'~'+mx+(mx-mn>1?' <span class="bad">차이 '+(mx-mn)+'</span>':'');
+    }).join(' &nbsp;·&nbsp; ');
+  }
+
+  el.innerHTML='<div class="stat">'
+    + '<div class="bar" style="margin:0 0 10px">'
+    +   '<button class="btn" data-sr="show" aria-pressed="'+(app.statRange!=='all')+'">표시 기간</button>'
+    +   '<button class="btn" data-sr="all" aria-pressed="'+(app.statRange==='all')+'">전체 근무표</button>'
+    + '</div>'
+    + '<table><thead><tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead>'
+    + '<tbody>'+body+'</tbody></table>'
+    + '<div class="rng">'+from+' ~ '+to+'</div>'
+    + (dev?'<div class="rng">전문의 편차 — '+dev+'</div>':'')
+    + '</div>';
 }
 
 function renderBoard(){
@@ -954,6 +1043,13 @@ function fillRestSelects(){
     }).join('');
   });
 }
+document.getElementById('statBtn').addEventListener('click',function(){
+  app.stat=!app.stat; save('stat',app.stat); renderStat();
+});
+document.getElementById('statWrap').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-sr]'); if(!b) return;
+  app.statRange=b.dataset.sr; save('statRange',app.statRange); renderStat();
+});
 document.getElementById('swapReset').addEventListener('click',function(){
   app.pick=null; app.peek=null; hideTip(); clearPeek(); renderBoard();
 });
