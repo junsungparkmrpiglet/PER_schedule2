@@ -58,6 +58,8 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 
 .calwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .cal{min-width:672px}
+.calwrap.fit{overflow-x:visible}
+.calwrap.fit .cal{min-width:0}
 .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px}
 .dow div{font-size:11px;font-weight:500;color:var(--mid);text-align:center;padding:2px 0}
 .dow .sat{color:#33417A} .dow .sun{color:#A8431F}
@@ -176,7 +178,43 @@ main{padding:16px;max-width:1120px;margin:0 auto}
 
 .step{font-size:12px;color:var(--mid);margin-bottom:6px}
 .step b{color:var(--ink);font-weight:600}
-@media (max-width:640px){ main{padding:12px} .topbar{padding:9px 12px} .tabs{padding:0 12px} }
+@media (max-width:760px){
+  main{padding:10px}
+  .topbar{padding:9px 12px}
+  .tabs{padding:0 12px}
+  .cal{min-width:0}
+  .calwrap{overflow-x:visible}
+  .dow{gap:2px;margin-bottom:2px}
+  .dow div{font-size:9.5px;padding:1px 0}
+  .week{gap:2px;margin-bottom:2px}
+  .day{padding:3px 2px 4px;min-height:0;border-radius:4px}
+  .dnum{font-size:9.5px;gap:3px;margin-bottom:2px}
+  .dnum .hname{display:none}
+  .slot{font-size:9.5px;gap:2px;padding:1px 2px;margin:0 -2px;line-height:1.4}
+  .slot .tag{width:11px;font-size:7.5px;border-radius:2px}
+  .pfday{padding:3px 2px;min-height:0;gap:3px}
+  .pfnum{font-size:9.5px;padding:1px 2px}
+  .pfall{font-size:8.5px;padding:0 3px}
+  .pfrow{gap:2px}
+  .pfb{font-size:9px;padding:2px 0}
+  .lrow{grid-template-columns:64px 1fr;padding:6px 8px}
+  .bar{gap:6px}
+  .btn{padding:5px 9px;font-size:12.5px}
+  .fsel{font-size:11.5px}
+}
+@media (min-width:520px) and (max-width:760px){
+  .slot{font-size:11px;gap:3px}
+  .slot .tag{width:13px;font-size:9px}
+  .dnum{font-size:10.5px}
+  .dnum .hname{display:inline;font-size:9px}
+  .pfb{font-size:10.5px}
+}
+@media (max-width:400px){
+  .slot{font-size:8.5px;gap:1px}
+  .slot .tag{width:9px;font-size:7px}
+  .dnum{font-size:8.5px}
+  .pfb{font-size:8px}
+}
 </style>
 </head>
 <body>
@@ -1032,7 +1070,7 @@ document.getElementById('holSync').addEventListener('click',function(){
 });
 
 
-if(window.innerWidth<640 && load('view',null)===null) app.view='list';
+if(window.innerWidth<360 && load('view',null)===null) app.view='list';
 boot();
 </script>
 </body>
